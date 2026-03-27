@@ -78,13 +78,13 @@ impl<V> CacheEntry<V> {
 
     #[inline]
     pub(crate) fn bump_freq(&self) {
-        let _ = self.freq.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |f| {
-            if f < crate::shard::MAX_FREQ {
-                Some(f + 1)
-            } else {
-                None
-            }
-        });
+        // Load+store instead of CAS loop. Races may lose an increment but freq
+        // is a heuristic (saturates at 3) — correctness only requires "was
+        // accessed at least once", so a lost increment is harmless.
+        let f = self.freq.load(Ordering::Relaxed);
+        if f < crate::shard::MAX_FREQ {
+            self.freq.store(f + 1, Ordering::Relaxed);
+        }
     }
 }
 
