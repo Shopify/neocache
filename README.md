@@ -51,6 +51,7 @@ cache.remove("key");
 ### Unbounded map (no eviction)
 
 ```rust
+# use s3dashmap::S3DashMap;
 let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
 ```
 
@@ -59,6 +60,7 @@ let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
 The shard count must be a power of two greater than 1. Choosing a count that evenly divides your capacity gives a tighter bound on the maximum live entries.
 
 ```rust
+# use s3dashmap::S3DashMap;
 // 4 shards, 16 entries per shard, total capacity exactly 64.
 let cache = S3DashMap::<u64, u64>::with_shard_amount(64, 4);
 ```
@@ -76,6 +78,8 @@ let cache: S3DashMap<String, u64, RandomState> =
 ### Entry API
 
 ```rust
+# use s3dashmap::S3DashMap;
+# let cache: S3DashMap<String, u64> = S3DashMap::new(100);
 cache.entry("counter".to_string())
     .and_modify(|v| *v += 1)
     .or_insert(0);
@@ -84,6 +88,8 @@ cache.entry("counter".to_string())
 ### Iteration
 
 ```rust
+# use s3dashmap::S3DashMap;
+# let cache: S3DashMap<String, u64> = S3DashMap::new(100);
 for r in &cache {
     let (k, v) = r.pair();
     println!("{k}: {v:?}");

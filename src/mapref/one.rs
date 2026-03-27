@@ -1,9 +1,11 @@
+//! Single-key reference types returned by `get` and `get_mut`.
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::HashMap;
 use core::hash::Hash;
 use core::ops::{Deref, DerefMut};
 use std::fmt::{Debug, Formatter};
 
+/// A shared reference to a single map entry, holding a per-shard read lock.
 pub struct Ref<'a, K, V> {
     _guard: RwLockReadGuard<'a, HashMap<K, V>>,
     k: *const K,
@@ -26,18 +28,22 @@ impl<'a, K: Eq + Hash, V> Ref<'a, K, V> {
         }
     }
 
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a reference to the value.
     pub fn value(&self) -> &V {
         self.pair().1
     }
 
+    /// Returns a `(&key, &value)` tuple.
     pub fn pair(&self) -> (&K, &V) {
         unsafe { (&*self.k, &*self.v) }
     }
 
+    /// Projects the reference onto a sub-field of the value, keeping the lock held.
     pub fn map<F, T>(self, f: F) -> MappedRef<'a, K, V, T>
     where
         F: FnOnce(&V) -> &T,
@@ -49,6 +55,7 @@ impl<'a, K: Eq + Hash, V> Ref<'a, K, V> {
         }
     }
 
+    /// Like [`map`](Self::map) but returns `Err(self)` if the projection returns `None`.
     pub fn try_map<F, T>(self, f: F) -> Result<MappedRef<'a, K, V, T>, Self>
     where
         F: FnOnce(&V) -> Option<&T>,
@@ -82,6 +89,7 @@ impl<'a, K: Eq + Hash, V> Deref for Ref<'a, K, V> {
     }
 }
 
+/// A mutable reference to a single map entry, holding a per-shard write lock.
 pub struct RefMut<'a, K, V> {
     guard: RwLockWriteGuard<'a, HashMap<K, V>>,
     k: *const K,
@@ -100,30 +108,37 @@ impl<'a, K: Eq + Hash, V> RefMut<'a, K, V> {
         Self { guard, k, v }
     }
 
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a shared reference to the value.
     pub fn value(&self) -> &V {
         self.pair().1
     }
 
+    /// Returns a mutable reference to the value.
     pub fn value_mut(&mut self) -> &mut V {
         self.pair_mut().1
     }
 
+    /// Returns a `(&key, &value)` tuple.
     pub fn pair(&self) -> (&K, &V) {
         unsafe { (&*self.k, &*self.v) }
     }
 
+    /// Returns a `(&key, &mut value)` tuple.
     pub fn pair_mut(&mut self) -> (&K, &mut V) {
         unsafe { (&*self.k, &mut *self.v) }
     }
 
+    /// Atomically downgrades this write guard to a shared read guard.
     pub fn downgrade(self) -> Ref<'a, K, V> {
         unsafe { Ref::new(RwLockWriteGuard::downgrade(self.guard), self.k, self.v) }
     }
 
+    /// Projects the mutable reference onto a sub-field of the value.
     pub fn map<F, T>(self, f: F) -> MappedRefMut<'a, K, V, T>
     where
         F: FnOnce(&mut V) -> &mut T,
@@ -135,6 +150,7 @@ impl<'a, K: Eq + Hash, V> RefMut<'a, K, V> {
         }
     }
 
+    /// Like [`map`](Self::map) but returns `Err(self)` if the projection returns `None`.
     pub fn try_map<F, T>(self, f: F) -> Result<MappedRefMut<'a, K, V, T>, Self>
     where
         F: FnOnce(&mut V) -> Option<&mut T>,
@@ -176,6 +192,7 @@ impl<'a, K: Eq + Hash, V> DerefMut for RefMut<'a, K, V> {
     }
 }
 
+/// A reference to a projected sub-field of a map value, holding a read lock.
 pub struct MappedRef<'a, K, V, T> {
     _guard: RwLockReadGuard<'a, HashMap<K, V>>,
     k: *const K,
@@ -183,18 +200,22 @@ pub struct MappedRef<'a, K, V, T> {
 }
 
 impl<'a, K: Eq + Hash, V, T> MappedRef<'a, K, V, T> {
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a reference to the projected value.
     pub fn value(&self) -> &T {
         self.pair().1
     }
 
+    /// Returns a `(&key, &projected_value)` tuple.
     pub fn pair(&self) -> (&K, &T) {
         unsafe { (&*self.k, &*self.v) }
     }
 
+    /// Further projects onto a sub-field.
     pub fn map<F, T2>(self, f: F) -> MappedRef<'a, K, V, T2>
     where
         F: FnOnce(&T) -> &T2,
@@ -206,6 +227,7 @@ impl<'a, K: Eq + Hash, V, T> MappedRef<'a, K, V, T> {
         }
     }
 
+    /// Like [`map`](Self::map) but returns `Err(self)` if the projection returns `None`.
     pub fn try_map<F, T2>(self, f: F) -> Result<MappedRef<'a, K, V, T2>, Self>
     where
         F: FnOnce(&T) -> Option<&T2>,
@@ -254,6 +276,7 @@ impl<'a, K: Eq + Hash, V, T: AsRef<TDeref>, TDeref: ?Sized> AsRef<TDeref>
     }
 }
 
+/// A mutable reference to a projected sub-field of a map value, holding a write lock.
 pub struct MappedRefMut<'a, K, V, T> {
     _guard: RwLockWriteGuard<'a, HashMap<K, V>>,
     k: *const K,
@@ -261,26 +284,32 @@ pub struct MappedRefMut<'a, K, V, T> {
 }
 
 impl<'a, K: Eq + Hash, V, T> MappedRefMut<'a, K, V, T> {
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a shared reference to the projected value.
     pub fn value(&self) -> &T {
         self.pair().1
     }
 
+    /// Returns a mutable reference to the projected value.
     pub fn value_mut(&mut self) -> &mut T {
         self.pair_mut().1
     }
 
+    /// Returns a `(&key, &projected_value)` tuple.
     pub fn pair(&self) -> (&K, &T) {
         unsafe { (&*self.k, &*self.v) }
     }
 
+    /// Returns a `(&key, &mut projected_value)` tuple.
     pub fn pair_mut(&mut self) -> (&K, &mut T) {
         unsafe { (&*self.k, &mut *self.v) }
     }
 
+    /// Further projects onto a sub-field mutably.
     pub fn map<F, T2>(self, f: F) -> MappedRefMut<'a, K, V, T2>
     where
         F: FnOnce(&mut T) -> &mut T2,
@@ -292,6 +321,7 @@ impl<'a, K: Eq + Hash, V, T> MappedRefMut<'a, K, V, T> {
         }
     }
 
+    /// Like [`map`](Self::map) but returns `Err(self)` if the projection returns `None`.
     pub fn try_map<F, T2>(self, f: F) -> Result<MappedRefMut<'a, K, V, T2>, Self>
     where
         F: FnOnce(&mut T) -> Option<&mut T2>,

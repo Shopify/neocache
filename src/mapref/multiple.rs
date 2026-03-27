@@ -1,9 +1,11 @@
+//! Reference types yielded by multi-shard iterators.
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::HashMap;
 use core::hash::Hash;
 use core::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
+/// A shared reference to a map entry obtained during multi-shard iteration.
 pub struct RefMulti<'a, K, V> {
     _guard: Arc<RwLockReadGuard<'a, HashMap<K, V>>>,
     k: *const K,
@@ -26,14 +28,17 @@ impl<'a, K: Eq + Hash, V> RefMulti<'a, K, V> {
         }
     }
 
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a reference to the value.
     pub fn value(&self) -> &V {
         self.pair().1
     }
 
+    /// Returns a `(&key, &value)` tuple.
     pub fn pair(&self) -> (&K, &V) {
         unsafe { (&*self.k, &*self.v) }
     }
@@ -47,6 +52,7 @@ impl<'a, K: Eq + Hash, V> Deref for RefMulti<'a, K, V> {
     }
 }
 
+/// A mutable reference to a map entry obtained during multi-shard iteration.
 pub struct RefMutMulti<'a, K, V> {
     _guard: Arc<RwLockWriteGuard<'a, HashMap<K, V>>>,
     k: *const K,
@@ -69,22 +75,27 @@ impl<'a, K: Eq + Hash, V> RefMutMulti<'a, K, V> {
         }
     }
 
+    /// Returns a reference to the key.
     pub fn key(&self) -> &K {
         self.pair().0
     }
 
+    /// Returns a shared reference to the value.
     pub fn value(&self) -> &V {
         self.pair().1
     }
 
+    /// Returns a mutable reference to the value.
     pub fn value_mut(&mut self) -> &mut V {
         self.pair_mut().1
     }
 
+    /// Returns a `(&key, &value)` tuple.
     pub fn pair(&self) -> (&K, &V) {
         unsafe { (&*self.k, &*self.v) }
     }
 
+    /// Returns a `(&key, &mut value)` tuple.
     pub fn pair_mut(&mut self) -> (&K, &mut V) {
         unsafe { (&*self.k, &mut *self.v) }
     }

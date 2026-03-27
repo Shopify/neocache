@@ -1,3 +1,4 @@
+//! Entry API — occupied and vacant entry types.
 use super::one::RefMut;
 use crate::lock::RwLockWriteGuard;
 use crate::shard::{LOC_MAIN, LOC_SMALL};
@@ -6,12 +7,16 @@ use crate::HashMap;
 use core::hash::Hash;
 use core::mem;
 
+/// A view into a single entry in the map, which may be occupied or vacant.
 pub enum Entry<'a, K, V> {
+    /// An occupied entry.
     Occupied(OccupiedEntry<'a, K, V>),
+    /// A vacant entry.
     Vacant(VacantEntry<'a, K, V>),
 }
 
 impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
+    /// Provides in-place mutable access to an occupied entry before any potential inserts.
     pub fn and_modify(self, f: impl FnOnce(&mut V)) -> Self {
         match self {
             Entry::Occupied(mut entry) => {
@@ -22,6 +27,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Returns a reference to the key of the entry.
     pub fn key(&self) -> &K {
         match *self {
             Entry::Occupied(ref entry) => entry.key(),
@@ -29,6 +35,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Consumes the entry and returns the key.
     pub fn into_key(self) -> K {
         match self {
             Entry::Occupied(entry) => entry.into_key(),
@@ -36,6 +43,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Ensures a value is in the entry by inserting `V::default()` if vacant.
     pub fn or_default(self) -> RefMut<'a, K, V>
     where
         K: Clone,
@@ -47,6 +55,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Ensures a value is in the entry by inserting `value` if vacant.
     pub fn or_insert(self, value: V) -> RefMut<'a, K, V>
     where
         K: Clone,
@@ -57,6 +66,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Ensures a value is in the entry by inserting the result of `value()` if vacant.
     pub fn or_insert_with(self, value: impl FnOnce() -> V) -> RefMut<'a, K, V>
     where
         K: Clone,
@@ -67,6 +77,8 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Ensures a value is in the entry by inserting the result of `value()` if vacant,
+    /// propagating any error from the fallible closure.
     pub fn or_try_insert_with<E>(
         self,
         value: impl FnOnce() -> Result<V, E>,
@@ -80,6 +92,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Inserts `value` into the entry regardless of whether it was occupied.
     pub fn insert(self, value: V) -> RefMut<'a, K, V>
     where
         K: Clone,
@@ -93,6 +106,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
         }
     }
 
+    /// Inserts `value` and returns an `OccupiedEntry` regardless of prior occupancy.
     pub fn insert_entry(self, value: V) -> OccupiedEntry<'a, K, V>
     where
         K: Clone,
@@ -107,6 +121,7 @@ impl<'a, K: Eq + Hash, V> Entry<'a, K, V> {
     }
 }
 
+/// A view into a vacant entry in the map.
 pub struct VacantEntry<'a, K, V> {
     shard: RwLockWriteGuard<'a, HashMap<K, V>>,
     key: K,
@@ -216,15 +231,18 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
         }
     }
 
+    /// Consumes the entry and returns the key.
     pub fn into_key(self) -> K {
         self.key
     }
 
+    /// Returns a reference to the key of the vacant entry.
     pub fn key(&self) -> &K {
         &self.key
     }
 }
 
+/// A view into an occupied entry in the map.
 pub struct OccupiedEntry<'a, K, V> {
     shard: RwLockWriteGuard<'a, HashMap<K, V>>,
     bucket: hashbrown::raw::Bucket<(K, CacheEntry<V>)>,
@@ -243,18 +261,22 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         Self { shard, bucket, key }
     }
 
+    /// Returns a shared reference to the value of the entry.
     pub fn get(&self) -> &V {
         unsafe { self.bucket.as_ref().1.value.get() }
     }
 
+    /// Returns a mutable reference to the value of the entry.
     pub fn get_mut(&mut self) -> &mut V {
         unsafe { self.bucket.as_mut().1.value.get_mut() }
     }
 
+    /// Replaces the value of the entry and returns the old value.
     pub fn insert(&mut self, value: V) -> V {
         mem::replace(self.get_mut(), value)
     }
 
+    /// Converts into a `RefMut` that holds the shard lock.
     pub fn into_ref(self) -> RefMut<'a, K, V> {
         unsafe {
             let (k, entry) = self.bucket.as_ref();
@@ -262,14 +284,17 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         }
     }
 
+    /// Consumes the entry and returns the key.
     pub fn into_key(self) -> K {
         self.key
     }
 
+    /// Returns a reference to the key of the entry.
     pub fn key(&self) -> &K {
         unsafe { &self.bucket.as_ref().0 }
     }
 
+    /// Removes the entry from the map and returns the value.
     pub fn remove(mut self) -> V {
         let loc = unsafe { self.bucket.as_ref().1.loc };
         let ((_k, entry), _) = unsafe { self.shard.map.remove(self.bucket) };
@@ -282,6 +307,7 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         entry.value.into_inner()
     }
 
+    /// Removes the entry from the map and returns the `(key, value)` pair.
     pub fn remove_entry(mut self) -> (K, V) {
         let loc = unsafe { self.bucket.as_ref().1.loc };
         let ((k, entry), _) = unsafe { self.shard.map.remove(self.bucket) };
@@ -293,6 +319,7 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         (k, entry.value.into_inner())
     }
 
+    /// Replaces the entry in-place with a new key-value pair and returns the old pair.
     pub fn replace_entry(self, value: V) -> (K, V) {
         let (k, entry) = mem::replace(
             unsafe { self.bucket.as_mut() },
