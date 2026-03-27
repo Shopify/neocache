@@ -105,17 +105,19 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - **2× hash table pre-allocation**: hashbrown probing not the bottleneck
 - **Epoch-based frequency decay**: not tried, Zipfian has stable access pattern
 
-### Final state (corrected script)
-- eff_ops_sec: ~25.5-25.7M (was 23.1M baseline → +10-11%)
-- ops_sec: ~30.2M (was 27.2M → +11%)
-- p99: ~1.12µs (was 1.50µs → -25%)
-- tail: ~1.00µs (was 1.38µs → -28%)
-- hit_rate: 85.2% (was 84.9% → +0.3%)
-- CV: ~1.4% (was 7-17% → excellent stability with 5-run median)
+### Session 4-5 wins
+15. **Double-try read lock fast path** (+5.2% eff_ops) — Second CAS attempt before slow path catches reader-reader CAS staleness. Avoids expensive slow path spin+park for transient failures.
 
-### Optimization limits reached
-All micro-optimizations exhausted across 3 sessions (39 experiments, 14 kept).
-Remaining bottlenecks require architectural changes:
-- Lock-free reads (epoch-based reclamation, ~30% theoretical gain)
-- RCU-style hash table (eliminate read-lock CAS entirely)
-- Better eviction data structures (intrusive lists, O(1) amortized)
+### Session 4-5 dead ends
+- **fetch_add read lock**: 12% faster atomic but ONE_WRITER bit layout causes usize overflow. Full lock redesign needed (blocked).
+- **Double-try write lock**: writers wait for readers (~40ns), second CAS at +5ns is futile.
+- **Triple-try read lock**: no marginal gain over double — if both fail, contention is writer-held.
+- **spin_loop between CAS retries**: YIELD hint may hurt on ARM64.
+
+### Current state (session 5)
+- eff_ops_sec: ~26.5-26.8M (was 23.1M baseline → +15%)
+- ops_sec: ~31.1M (was 27.2M → +14%)
+- p99: ~1.25µs (was 1.50µs → -17%)
+- tail: ~1.12µs (was 1.38µs → -19%)
+- hit_rate: 85.2% (was 84.9% → +0.3%)
+- CV: ~1.3% (was 7-17% → excellent stability with 5-run median)
