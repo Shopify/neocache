@@ -1,20 +1,19 @@
 # Ideas Backlog
 
-## Untried / promising
-- **Full RwLock redesign**: Current ONE_WRITER=!(0b11) enables atomic downgrade but prevents fetch_add (overflow). A completely new state encoding with separate WRITER_BIT could enable fetch_add reads (12% faster atomic ops, ~5-7% overall) but requires rewriting downgrade, all lock/unlock paths, and parked thread handling. Major effort, high risk.
-- **Lock-free read path**: Use epoch-based reclamation or hazard pointers to eliminate read lock entirely. Maximum theoretical gain (~30%) but requires fundamental architecture change and extensive unsafe code.
+## Remaining (require architectural changes)
+- **Full RwLock state redesign**: Separate WRITER_BIT enables fetch_add reads (~12% faster atomics, ~5% overall). Requires rewriting all lock/unlock paths + downgrade logic. Major effort.
+- **Lock-free read path**: Epoch-based reclamation or hazard pointers. Eliminates read lock entirely (~30% theoretical gain). Massive unsafe code effort.
 
-## Tried and failed — do NOT retry
-- Fewer shards (32), more shards (256)
-- #[inline] hints, unreachable_unchecked
-- Pre-clone key before lock
-- Ghost cap 2×, small queue 5-7%
-- MAX_FREQ 5/15 (7 is optimal)
-- Freq reset to 0, freq=MAX_FREQ on promotion
-- Shard routing low-bits mask
-- u32 fingerprint
+## Exhaustively tried and failed — do NOT retry
+- Fewer/more shards (32, 256): contention vs variance tradeoff, 128 is optimal
+- #[inline] hints, unreachable_unchecked, repr(C) on CacheEntry
+- Pre-clone key before lock, early drop of write lock guard
+- Ghost cap 2×, small queue 5-7%, epoch-based freq decay
+- MAX_FREQ 5/15 (7 is optimal), freq reset to 0, freq=MAX on promotion
+- Shard routing low-bits mask, u32 fingerprint
 - Direct insert() vs find_or_find_insert_slot
-- Early drop of write lock guard
-- 2× hash table pre-allocation
-- Downgrade write→read after occupied insert (window too small)
-- Epoch-based frequency decay (Zipfian is stable)
+- 2× hash table pre-allocation (probe depth not bottleneck)
+- Triple-try read lock (double is optimal), spin_loop between retries
+- Double-try write lock (writers wait ~40ns for readers)
+- erase() vs remove() in eviction (only 3% of ops)
+- fetch_add read lock (blocked by ONE_WRITER bit layout)
