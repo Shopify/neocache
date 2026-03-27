@@ -99,9 +99,23 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - **unreachable_unchecked in _insert**: no measurable gain, risky UB
 - **Direct insert() vs find_or_find_insert_slot for vacant**: identical perf, vacant is only 3% of ops
 
-### Current state (session 2)
-- eff_ops_sec: ~26.1M (was 23.1M baseline → +12.9%)
-- p99: ~1.25µs (was 1.50µs → -16.7%)
-- tail: ~1.12µs (was 1.38µs → -18.8%)
+### Session 3 dead ends
+- **Set freq=MAX_FREQ on promotion**: over-protects cold entries, hit rate -0.2%
+- **Early drop of write lock guard**: no measurable improvement
+- **2× hash table pre-allocation**: hashbrown probing not the bottleneck
+- **Epoch-based frequency decay**: not tried, Zipfian has stable access pattern
+
+### Final state (corrected script)
+- eff_ops_sec: ~25.5-25.7M (was 23.1M baseline → +10-11%)
+- ops_sec: ~30.2M (was 27.2M → +11%)
+- p99: ~1.12µs (was 1.50µs → -25%)
+- tail: ~1.00µs (was 1.38µs → -28%)
 - hit_rate: 85.2% (was 84.9% → +0.3%)
-- CV: ~2.1% (was 7-17% → excellent stability with 5-run median)
+- CV: ~1.4% (was 7-17% → excellent stability with 5-run median)
+
+### Optimization limits reached
+All micro-optimizations exhausted across 3 sessions (39 experiments, 14 kept).
+Remaining bottlenecks require architectural changes:
+- Lock-free reads (epoch-based reclamation, ~30% theoretical gain)
+- RCU-style hash table (eliminate read-lock CAS entirely)
+- Better eviction data structures (intrusive lists, O(1) amortized)
