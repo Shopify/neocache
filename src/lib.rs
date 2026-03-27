@@ -1,9 +1,15 @@
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 #![allow(clippy::type_complexity)]
 
 pub mod iter;
 mod lock;
 pub mod mapref;
+#[cfg(feature = "rayon")]
+pub mod rayon_impl;
 mod read_only;
+#[cfg(feature = "serde")]
+mod ser;
 pub(crate) mod shard;
 pub mod t;
 pub mod try_result;
@@ -13,7 +19,7 @@ use crate::lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use core::borrow::Borrow;
 use core::fmt;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::{BuildHasher, Hash};
 use core::iter::FromIterator;
 use core::ops::{BitAnd, BitOr, Shl, Shr, Sub};
 use crossbeam_utils::CachePadded;
@@ -36,6 +42,7 @@ pub(crate) type HashMap<K, V> = ShardData<K, V>;
 
 // ── TryReserveError ──────────────────────────────────────────────────────────
 
+/// Error returned by [`S3DashMap::try_reserve`] when allocation fails.
 #[non_exhaustive]
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TryReserveError {}
@@ -102,7 +109,7 @@ where
 
 // ── Constructors (ahash default hasher) ──────────────────────────────────────
 
-impl<'a, K: 'a + Eq + Hash + Clone, V: 'a> S3DashMap<K, V, RandomState> {
+impl<K: Eq + Hash + Clone, V> S3DashMap<K, V, RandomState> {
     /// Create a map with S3-FIFO eviction at the given capacity.
     pub fn new(cache_capacity: usize) -> Self {
         Self::with_capacity_and_hasher(cache_capacity, RandomState::new())
@@ -127,15 +134,18 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a> S3DashMap<K, V, RandomState> {
 
 // ── Constructors (generic hasher) ─────────────────────────────────────────────
 
-impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S> {
+impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S> {
+    /// Converts the map into a lock-free [`ReadOnlyView`], consuming it.
     pub fn into_read_only(self) -> ReadOnlyView<K, V, S> {
         ReadOnlyView::new(self)
     }
 
+    /// Create an unbounded map with a custom hasher.
     pub fn with_hasher(hasher: S) -> Self {
         Self::with_capacity_and_hasher(0, hasher)
     }
 
+    /// Create a map with S3-FIFO eviction using a custom hasher.
     pub fn with_capacity_and_hasher(cache_capacity: usize, hasher: S) -> Self {
         Self::with_capacity_and_hasher_and_shard_amount(
             cache_capacity,
@@ -144,6 +154,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         )
     }
 
+    /// Create an unbounded map with a custom hasher and explicit shard count.
     pub fn with_hasher_and_shard_amount(hasher: S, shard_amount: usize) -> Self {
         Self::with_capacity_and_hasher_and_shard_amount(0, hasher, shard_amount)
     }
@@ -182,14 +193,13 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
 
     // ── Hash helpers ──────────────────────────────────────────────────────────
 
+    /// Hashes `item` to a `usize` using the map's hasher.
     pub fn hash_usize<T: Hash>(&self, item: &T) -> usize {
         self.hash_u64(item) as usize
     }
 
     pub(crate) fn hash_u64<T: Hash>(&self, item: &T) -> u64 {
-        let mut hasher = self.hasher.build_hasher();
-        item.hash(&mut hasher);
-        hasher.finish()
+        self.hasher.hash_one(item)
     }
 
     pub(crate) fn determine_shard(&self, hash: usize) -> usize {
@@ -197,6 +207,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         (hash << 7) >> self.shift
     }
 
+    /// Returns a reference to the hasher.
     pub fn hasher(&self) -> &S {
         &self.hasher
     }
@@ -210,6 +221,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._insert(key, value)
     }
 
+    /// Removes an entry and returns its `(key, value)` pair, or `None`.
     pub fn remove<Q>(&self, key: &Q) -> Option<(K, V)>
     where
         K: Borrow<Q>,
@@ -218,6 +230,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._remove(key)
     }
 
+    /// Removes an entry if `f(key, value)` returns `true`.
     pub fn remove_if<Q>(&self, key: &Q, f: impl FnOnce(&K, &V) -> bool) -> Option<(K, V)>
     where
         K: Borrow<Q>,
@@ -226,6 +239,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._remove_if(key, f)
     }
 
+    /// Removes an entry if `f(key, &mut value)` returns `true`.
     pub fn remove_if_mut<Q>(
         &self,
         key: &Q,
@@ -238,14 +252,17 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._remove_if_mut(key, f)
     }
 
+    /// Returns an iterator over shared references to all entries.
     pub fn iter(&'a self) -> Iter<'a, K, V, S, S3DashMap<K, V, S>> {
         self._iter()
     }
 
+    /// Returns an iterator over mutable references to all entries.
     pub fn iter_mut(&'a self) -> IterMut<'a, K, V, S, S3DashMap<K, V, S>> {
         self._iter_mut()
     }
 
+    /// Returns a shared reference guard for `key`, bumping the frequency counter.
     pub fn get<Q>(&'a self, key: &Q) -> Option<Ref<'a, K, V>>
     where
         K: Borrow<Q>,
@@ -254,6 +271,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._get(key)
     }
 
+    /// Returns a mutable reference guard for `key`, bumping the frequency counter.
     pub fn get_mut<Q>(&'a self, key: &Q) -> Option<RefMut<'a, K, V>>
     where
         K: Borrow<Q>,
@@ -262,6 +280,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._get_mut(key)
     }
 
+    /// Non-blocking variant of `get`; returns `TryResult::Locked` if the shard is busy.
     pub fn try_get<Q>(&'a self, key: &Q) -> TryResult<Ref<'a, K, V>>
     where
         K: Borrow<Q>,
@@ -270,6 +289,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._try_get(key)
     }
 
+    /// Non-blocking variant of `get_mut`; returns `TryResult::Locked` if the shard is busy.
     pub fn try_get_mut<Q>(&'a self, key: &Q) -> TryResult<RefMut<'a, K, V>>
     where
         K: Borrow<Q>,
@@ -278,10 +298,12 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._try_get_mut(key)
     }
 
+    /// Shrinks each shard's hashbrown allocation to fit the current number of entries.
     pub fn shrink_to_fit(&self) {
         self._shrink_to_fit();
     }
 
+    /// Removes all entries for which `f(key, value)` returns `false`.
     pub fn retain(&self, f: impl FnMut(&K, &mut V) -> bool) {
         self._retain(f);
     }
@@ -293,14 +315,17 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         }
     }
 
+    /// Returns the total number of entries across all shards.
     pub fn len(&self) -> usize {
         self._len()
     }
 
+    /// Returns `true` if the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self._is_empty()
     }
 
+    /// Returns the total allocated capacity across all shards.
     pub fn capacity(&self) -> usize {
         self._capacity()
     }
@@ -310,6 +335,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self.cache_capacity
     }
 
+    /// Updates the value of an existing entry with `f(key, old_value) -> new_value`.
     pub fn alter<Q>(&self, key: &Q, f: impl FnOnce(&K, V) -> V)
     where
         K: Borrow<Q>,
@@ -318,10 +344,12 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._alter(key, f);
     }
 
+    /// Updates all entries with `f(key, old_value) -> new_value`.
     pub fn alter_all(&self, f: impl FnMut(&K, V) -> V) {
         self._alter_all(f);
     }
 
+    /// Calls `f(key, value)` under the read lock and returns the result.
     pub fn view<Q, R>(&self, key: &Q, f: impl FnOnce(&K, &V) -> R) -> Option<R>
     where
         K: Borrow<Q>,
@@ -330,6 +358,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._view(key, f)
     }
 
+    /// Returns `true` if the map contains an entry for `key`.
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
@@ -338,14 +367,17 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, 
         self._contains_key(key)
     }
 
+    /// Returns an [`Entry`] for the given key, acquiring a write lock.
     pub fn entry(&'a self, key: K) -> Entry<'a, K, V> {
         self._entry(key)
     }
 
+    /// Non-blocking variant of [`entry`](Self::entry); returns `None` if the shard is busy.
     pub fn try_entry(&'a self, key: K) -> Option<Entry<'a, K, V>> {
         self._try_entry(key)
     }
 
+    /// Attempts to reserve capacity for `additional` more entries in each shard.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         for shard in self.shards.iter() {
             shard
@@ -659,11 +691,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         match shard.map.find_or_find_insert_slot(
             hash,
             |(k, _entry)| k == &key,
-            |(k, _entry)| {
-                let mut h = self.hasher.build_hasher();
-                k.hash(&mut h);
-                h.finish()
-            },
+            |(k, _entry)| self.hasher.hash_one(k),
         ) {
             Ok(elem) => Entry::Occupied(unsafe { OccupiedEntry::new(shard, key, elem) }),
             Err(slot) => Entry::Vacant(unsafe { VacantEntry::new(shard, key, hash, slot) }),
@@ -673,19 +701,12 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     fn _try_entry(&'a self, key: K) -> Option<Entry<'a, K, V>> {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
-        let mut shard = match unsafe { self._try_yield_write_shard(idx) } {
-            Some(s) => s,
-            None => return None,
-        };
+        let mut shard = unsafe { self._try_yield_write_shard(idx) }?;
 
         match shard.map.find_or_find_insert_slot(
             hash,
             |(k, _entry)| k == &key,
-            |(k, _entry)| {
-                let mut h = self.hasher.build_hasher();
-                k.hash(&mut h);
-                h.finish()
-            },
+            |(k, _entry)| self.hasher.hash_one(k),
         ) {
             Ok(elem) => Some(Entry::Occupied(unsafe {
                 OccupiedEntry::new(shard, key, elem)

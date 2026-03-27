@@ -1,6 +1,6 @@
 use crate::util::CacheEntry;
 use ahash::RandomState;
-use core::hash::{BuildHasher, Hash, Hasher};
+use core::hash::{BuildHasher, Hash};
 use core::sync::atomic::Ordering;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -272,18 +272,10 @@ impl<K: Eq + Hash, V> ShardData<K, V> {
         additional: usize,
         hasher: &S,
     ) -> Result<(), hashbrown::TryReserveError> {
-        self.map.try_reserve(additional, |(k, _v)| {
-            let mut h = hasher.build_hasher();
-            k.hash(&mut h);
-            h.finish()
-        })
+        self.map.try_reserve(additional, |(k, _v)| hasher.hash_one(k))
     }
 
     pub(crate) fn map_shrink_to<S: BuildHasher>(&mut self, min_capacity: usize, hasher: &S) {
-        self.map.shrink_to(min_capacity, |(k, _v)| {
-            let mut h = hasher.build_hasher();
-            k.hash(&mut h);
-            h.finish()
-        });
+        self.map.shrink_to(min_capacity, |(k, _v)| hasher.hash_one(k));
     }
 }

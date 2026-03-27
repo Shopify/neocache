@@ -1,3 +1,4 @@
+//! Iterator types for [`S3DashMap`](crate::S3DashMap).
 use super::mapref::multiple::{RefMulti, RefMutMulti};
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::t::Map;
@@ -33,10 +34,10 @@ impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> Iterator for OwningIter<K,
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(current) = self.current.as_mut() {
-                if let Some((k, entry)) = current.next() {
-                    return Some((k, entry.value.into_inner()));
-                }
+            if let Some(current) = self.current.as_mut()
+                && let Some((k, entry)) = current.next()
+            {
+                return Some((k, entry.value.into_inner()));
             }
 
             if self.shard_i == self.map._shard_count() {
@@ -134,14 +135,14 @@ impl<'a, K: Eq + Hash + Clone, V, S: 'a + BuildHasher + Clone, M: Map<'a, K, V, 
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(current) = self.current.as_mut() {
-                if let Some(b) = current.1.next() {
-                    return unsafe {
-                        let (k, entry) = b.as_ref();
-                        let guard = current.0.clone();
-                        Some(RefMulti::new(guard, k, entry.value.as_ptr()))
-                    };
-                }
+            if let Some(current) = self.current.as_mut()
+                && let Some(b) = current.1.next()
+            {
+                return unsafe {
+                    let (k, entry) = b.as_ref();
+                    let guard = current.0.clone();
+                    Some(RefMulti::new(guard, k, entry.value.as_ptr()))
+                };
             }
 
             if self.shard_i == self.map._shard_count() {
@@ -202,14 +203,14 @@ impl<'a, K: Eq + Hash + Clone, V, S: 'a + BuildHasher + Clone, M: Map<'a, K, V, 
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(current) = self.current.as_mut() {
-                if let Some(b) = current.1.next() {
-                    return unsafe {
-                        let (k, entry) = b.as_mut();
-                        let guard = current.0.clone();
-                        Some(RefMutMulti::new(guard, k, entry.value.as_ptr()))
-                    };
-                }
+            if let Some(current) = self.current.as_mut()
+                && let Some(b) = current.1.next()
+            {
+                return unsafe {
+                    let (k, entry) = b.as_mut();
+                    let guard = current.0.clone();
+                    Some(RefMutMulti::new(guard, k, entry.value.as_ptr()))
+                };
             }
 
             if self.shard_i == self.map._shard_count() {

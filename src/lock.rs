@@ -153,14 +153,13 @@ impl RawRwLock {
         let mut parked = state & (READERS_PARKED | WRITERS_PARKED);
         assert_ne!(parked, 0);
 
-        if parked != (READERS_PARKED | WRITERS_PARKED) {
-            if let Err(new_state) =
+        if parked != (READERS_PARKED | WRITERS_PARKED)
+            && let Err(new_state) =
                 self.state
                     .compare_exchange(state, 0, Ordering::Release, Ordering::Relaxed)
-            {
-                assert_eq!(new_state, ONE_WRITER | READERS_PARKED | WRITERS_PARKED);
-                parked = READERS_PARKED | WRITERS_PARKED;
-            }
+        {
+            assert_eq!(new_state, ONE_WRITER | READERS_PARKED | WRITERS_PARKED);
+            parked = READERS_PARKED | WRITERS_PARKED;
         }
 
         if parked == (READERS_PARKED | WRITERS_PARKED) {
@@ -184,13 +183,13 @@ impl RawRwLock {
     fn try_lock_shared_fast(&self) -> bool {
         let state = self.state.load(Ordering::Relaxed);
 
-        if let Some(new_state) = state.checked_add(ONE_READER) {
-            if new_state & ONE_WRITER != ONE_WRITER {
-                return self
-                    .state
-                    .compare_exchange_weak(state, new_state, Ordering::Acquire, Ordering::Relaxed)
-                    .is_ok();
-            }
+        if let Some(new_state) = state.checked_add(ONE_READER)
+            && new_state & ONE_WRITER != ONE_WRITER
+        {
+            return self
+                .state
+                .compare_exchange_weak(state, new_state, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok();
         }
 
         false
