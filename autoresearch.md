@@ -114,10 +114,15 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - **Triple-try read lock**: no marginal gain over double — if both fail, contention is writer-held.
 - **spin_loop between CAS retries**: YIELD hint may hurt on ARM64.
 
-### Current state (session 5)
-- eff_ops_sec: ~26.5-26.8M (was 23.1M baseline → +15%)
-- ops_sec: ~31.1M (was 27.2M → +14%)
-- p99: ~1.25µs (was 1.50µs → -17%)
-- tail: ~1.12µs (was 1.38µs → -19%)
-- hit_rate: 85.2% (was 84.9% → +0.3%)
-- CV: ~1.3% (was 7-17% → excellent stability with 5-run median)
+### Session 6 findings
+- **Profiled single-thread get()**: 9.6ns total (hash=1.4ns, lock+find+freq+ref=8.2ns). Our code is already near-optimal.
+- **Bottleneck analysis**: In 12-thread benchmark, 5KB value access (~80 cache lines per hit) dominates. Our code is ~10% of total per-op time. Memory bandwidth is the limiting factor.
+- **All incremental optimization paths exhausted** across 6 sessions, 48 experiments, 15 kept.
+
+### Final state (session 6, clean system measurements)
+- eff_ops_sec: ~26.5-26.9M (was 23.1M baseline → **+15-16%**)
+- ops_sec: ~31.1M (was 27.2M → **+14%**)
+- p99: ~1.25µs (was 1.50µs → **-17%**)
+- tail: ~1.12µs (was 1.38µs → **-19%**)
+- hit_rate: 85.2% (was 84.9% → **+0.3%**)
+- CV: ~1.3% on clean system (was 7-17% → **-80%+**)
