@@ -180,7 +180,7 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
         };
 
         let shards = (0..shard_amount)
-            .map(|_| CachePadded::new(RwLock::new(ShardData::new(0, shard_cap))))
+            .map(|_| CachePadded::new(RwLock::new(ShardData::new(shard_cap, shard_cap))))
             .collect();
 
         Self {
@@ -198,10 +198,12 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
         self.hash_u64(item) as usize
     }
 
+    #[inline]
     pub(crate) fn hash_u64<T: Hash>(&self, item: &T) -> u64 {
         self.hasher.hash_one(item)
     }
 
+    #[inline]
     pub(crate) fn determine_shard(&self, hash: usize) -> usize {
         // Leave the high 7 bits for HashBrown's SIMD tag.
         (hash << 7) >> self.shift

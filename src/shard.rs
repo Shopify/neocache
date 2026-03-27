@@ -55,10 +55,12 @@ impl<K, V> ShardData<K, V> {
         };
         Self {
             map: hashbrown::raw::RawTable::with_capacity(map_cap),
-            small: VecDeque::new(),
-            main: VecDeque::new(),
-            ghost: VecDeque::new(),
-            ghost_set: HashSet::new(),
+            // Pre-allocate queues to avoid reallocation during steady-state.
+            // Over-allocate by 2x to account for stale entries from lazy removal.
+            small: VecDeque::with_capacity(small_cap.saturating_mul(2)),
+            main: VecDeque::with_capacity(main_cap.saturating_mul(2)),
+            ghost: VecDeque::with_capacity(ghost_cap),
+            ghost_set: HashSet::with_capacity(ghost_cap),
             small_live: 0,
             main_live: 0,
             shard_cap,
@@ -135,6 +137,7 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// Note: this may promote (small→main) without reducing `total_live`.
     /// The caller must loop (`while total_live >= shard_cap { evict_one() }`)
     /// to guarantee a free slot.
+    #[inline]
     pub(crate) fn evict_one(&mut self) {
         if self.small_live >= self.small_cap {
             self.evict_from_small();
