@@ -170,16 +170,26 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
         assert!(shard_amount > 1);
         assert!(shard_amount.is_power_of_two());
 
-        let shift = util::ptr_size_bits() - ncb(shard_amount);
+        // For small caches, reduce the effective shard count so each shard has
+        // enough capacity to avoid premature eviction from birthday-paradox
+        // collisions. Minimum 8 entries per shard keeps eviction predictable.
+        const MIN_PER_SHARD: usize = 8;
+        let effective_shards = if cache_capacity > 0 && cache_capacity / shard_amount < MIN_PER_SHARD {
+            (cache_capacity / MIN_PER_SHARD).next_power_of_two().max(2)
+        } else {
+            shard_amount
+        };
+
+        let shift = util::ptr_size_bits() - ncb(effective_shards);
 
         // Per-shard eviction capacity (rounded up so the sum ≥ cache_capacity).
         let shard_cap = if cache_capacity == 0 {
             0
         } else {
-            cache_capacity.div_ceil(shard_amount).max(1)
+            cache_capacity.div_ceil(effective_shards).max(1)
         };
 
-        let shards = (0..shard_amount)
+        let shards = (0..effective_shards)
             .map(|_| CachePadded::new(RwLock::new(ShardData::new(shard_cap, shard_cap))))
             .collect();
 
@@ -453,10 +463,13 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         ) {
             Ok(bucket) => {
                 // Fast path: update in-place, no eviction needed.
-                let old = unsafe {
-                    core::mem::replace(bucket.as_mut().1.value.get_mut(), value)
-                };
-                Some(old)
+                // Bump frequency so writes count as accesses — helps eviction
+                // preserve frequently-written keys.
+                unsafe {
+                    bucket.as_ref().1.bump_freq();
+                    let old = core::mem::replace(bucket.as_mut().1.value.get_mut(), value);
+                    Some(old)
+                }
             }
             Err(slot) => {
                 // Vacant: ghost check → evict → insert → register in queue.
