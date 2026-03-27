@@ -1,7 +1,6 @@
 use crate::util::CacheEntry;
 use core::hash::{BuildHasher, Hash};
 use core::sync::atomic::Ordering;
-use std::collections::HashSet;
 use std::collections::VecDeque;
 
 pub(crate) const MAX_FREQ: u8 = 3;
@@ -26,7 +25,8 @@ pub(crate) struct ShardData<K, V> {
     /// FIFO queue of recently evicted hash values (ghost set).
     pub(crate) ghost: VecDeque<u64>,
     /// Hash set for O(1) ghost membership test (stores hash values, not keys).
-    pub(crate) ghost_set: HashSet<u64>,
+    /// Uses ahash instead of default SipHash — faster for u64 keys.
+    pub(crate) ghost_set: hashbrown::HashSet<u64, ahash::RandomState>,
 
     /// Number of live entries currently in `small` queue.
     pub(crate) small_live: usize,
@@ -60,7 +60,7 @@ impl<K, V> ShardData<K, V> {
             small: VecDeque::with_capacity(small_cap.saturating_mul(2)),
             main: VecDeque::with_capacity(main_cap.saturating_mul(2)),
             ghost: VecDeque::with_capacity(ghost_cap),
-            ghost_set: HashSet::with_capacity(ghost_cap),
+            ghost_set: hashbrown::HashSet::with_capacity_and_hasher(ghost_cap, ahash::RandomState::new()),
             small_live: 0,
             main_live: 0,
             shard_cap,
@@ -98,7 +98,7 @@ impl<K, V> Default for ShardData<K, V> {
             small: VecDeque::new(),
             main: VecDeque::new(),
             ghost: VecDeque::new(),
-            ghost_set: HashSet::new(),
+            ghost_set: hashbrown::HashSet::with_hasher(ahash::RandomState::new()),
             small_live: 0,
             main_live: 0,
             shard_cap: 0,
