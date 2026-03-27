@@ -438,10 +438,56 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     }
 
     fn _insert(&self, key: K, value: V) -> Option<V> {
-        match self.entry(key) {
-            Entry::Occupied(mut o) => Some(o.insert(value)),
-            Entry::Vacant(v) => {
-                v.insert(value);
+        use crate::shard::{LOC_SMALL, LOC_MAIN};
+        use crate::util::CacheEntry;
+
+        let hash = self.hash_u64(&key);
+        let idx = self.determine_shard(hash as usize);
+        let mut shard = unsafe { self._yield_write_shard(idx) };
+
+        // Single probe: find existing or get insert slot.
+        match shard.map.find_or_find_insert_slot(
+            hash,
+            |(k, _)| k == &key,
+            |(k, _)| self.hasher.hash_one(k),
+        ) {
+            Ok(bucket) => {
+                // Fast path: update in-place, no eviction needed.
+                let old = unsafe {
+                    core::mem::replace(bucket.as_mut().1.value.get_mut(), value)
+                };
+                Some(old)
+            }
+            Err(slot) => {
+                // Vacant: ghost check → evict → insert → register in queue.
+                let loc = if shard.ghost_set.remove(&hash) {
+                    LOC_MAIN
+                } else {
+                    LOC_SMALL
+                };
+
+                while shard.shard_cap > 0 && shard.total_live() >= shard.shard_cap {
+                    shard.evict_one();
+                }
+
+                let key_for_queue = key.clone();
+
+                unsafe {
+                    let occupied = shard.map.insert_in_slot(
+                        hash,
+                        slot,
+                        (key, CacheEntry::new(value, loc)),
+                    );
+
+                    if loc == LOC_MAIN {
+                        shard.main.push_back((hash, key_for_queue));
+                        shard.main_live += 1;
+                    } else {
+                        shard.small.push_back((hash, key_for_queue));
+                        shard.small_live += 1;
+                    }
+                }
+
                 None
             }
         }
