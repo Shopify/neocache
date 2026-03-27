@@ -19,7 +19,7 @@ declare -a EFF_OPS_RUNS=()
 declare -a OPS_SEC_RUNS=()
 declare -a LINES=()
 
-for run in 1 2 3; do
+for run in 1 2 3 4 5; do
     OUTPUT=$(cargo run --release -- --caches s3dashmap 2>&1)
     LINE=$(echo "$OUTPUT" | grep -E '^\s*s3dashmap\s')
     if [ -z "$LINE" ]; then
@@ -34,11 +34,9 @@ for run in 1 2 3; do
     OPS_SEC_RUNS+=("$OPS")
 done
 
-# Find median by sorting eff_ops_sec and picking the middle
-MEDIAN_IDX=$(printf '%s\n' "${EFF_OPS_RUNS[@]}" | sort -n | awk 'NR==2{print NR; exit}')
-# Sort and pick the middle value
+# Sort and pick the middle value (index 2 for 5 runs)
 SORTED_EFF=($(printf '%s\n' "${EFF_OPS_RUNS[@]}" | sort -n))
-MEDIAN_EFF="${SORTED_EFF[1]}"
+MEDIAN_EFF="${SORTED_EFF[2]}"
 
 # Find the run that produced the median eff_ops
 for i in 0 1 2; do
@@ -66,5 +64,5 @@ echo "METRIC cv_pct=$CV_PCT"
 echo "METRIC tail_us=$TAIL_US"
 
 echo ""
-echo "3 runs: eff_ops = ${EFF_OPS_RUNS[0]} / ${EFF_OPS_RUNS[1]} / ${EFF_OPS_RUNS[2]}"
+echo "5 runs: eff_ops = ${EFF_OPS_RUNS[0]} / ${EFF_OPS_RUNS[1]} / ${EFF_OPS_RUNS[2]} / ${EFF_OPS_RUNS[3]} / ${EFF_OPS_RUNS[4]}"
 echo "Median run: $LINE"
