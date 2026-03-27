@@ -39,7 +39,7 @@ SORTED_EFF=($(printf '%s\n' "${EFF_OPS_RUNS[@]}" | sort -n))
 MEDIAN_EFF="${SORTED_EFF[2]}"
 
 # Find the run that produced the median eff_ops
-for i in 0 1 2; do
+for i in 0 1 2 3 4; do
     if [ "${EFF_OPS_RUNS[$i]}" = "$MEDIAN_EFF" ]; then
         LINE="${LINES[$i]}"
         break
