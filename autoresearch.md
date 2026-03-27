@@ -74,8 +74,24 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - **Fewer shards (64→32)**: -10% regression. Lock contention dominates at 2×ncpu.
 - **#[inline] on trait methods**: No effect — LTO already inlines monomorphized trait methods.
 
+### Additional wins
+7. **Identity hasher for ghost_set** (p99: 1.38→1.25µs) — u64 values are already well-distributed; zero-cost identity hash.
+8. **128 shards (8×ncpu)** (eff_ops +3.5%, tail sub-µs) — Less contention than 64 shards.
+9. **Fix flaky tests** (correctness) — Auto-reduce shard count for small caches (min 8 entries/shard).
+10. **bump_freq on occupied inserts** (hit rate 84.9→85.2%) — Writes count as accesses for eviction decisions.
+11. **MAX_FREQ 3→7** (eff_ops +2.4%) — More second chances in main queue.
+
+### Additional dead ends
+- **256 shards**: better latency but CV 10-12% (too variable)
+- **Ghost cap 2×**: no hit rate change for this Zipfian workload
+- **Small queue 5-7%**: unstable or no improvement
+- **MAX_FREQ=15**: eviction too expensive (15 re-enqueues per cold entry)
+- **Pre-clone key before lock**: wasted clone for 85% occupied writes
+- **Freq reset to 0 (S3-FIFO paper)**: faster eviction but -0.3% hit rate
+
 ### Current state
-- eff_ops_sec: ~24M (was 23.1M baseline → +3.9%)
-- p99: 1.38µs (was 1.50µs → -8%)
-- tail: 1.25µs (was 1.38µs → -9.4%)
-- hit_rate: 84.9% (unchanged)
+- eff_ops_sec: ~25.2M (was 23.1M baseline → +9.0%)
+- p99: ~1.21µs (was 1.50µs → -19.3%)
+- tail: ~1.08µs (was 1.38µs → -21.7%)
+- hit_rate: 85.2% (was 84.9% → +0.3%)
+- CV: variable 2-12% (environmental, 3-run median helps)

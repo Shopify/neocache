@@ -455,16 +455,26 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         let idx = self.determine_shard(hash as usize);
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
-        // Single probe: find existing or get insert slot.
+        // Fast path: use find() for the ~85% occupied case.
+        // find() is cheaper than find_or_find_insert_slot() because it
+        // doesn't track empty/deleted slots for potential insertion.
+        if let Some(bucket) = shard.map.find(hash, |(k, _)| k == &key) {
+            unsafe {
+                bucket.as_ref().1.bump_freq();
+                let old = core::mem::replace(bucket.as_mut().1.value.get_mut(), value);
+                return Some(old);
+            }
+        }
+
+        // Slow path (~15%): vacant insert — need an insert slot.
         match shard.map.find_or_find_insert_slot(
             hash,
             |(k, _)| k == &key,
             |(k, _)| self.hasher.hash_one(k),
         ) {
             Ok(bucket) => {
-                // Fast path: update in-place, no eviction needed.
-                // Bump frequency so writes count as accesses — helps eviction
-                // preserve frequently-written keys.
+                // Race between find and find_or_find_insert_slot is impossible
+                // (we hold the write lock), but handle it for safety.
                 unsafe {
                     bucket.as_ref().1.bump_freq();
                     let old = core::mem::replace(bucket.as_mut().1.value.get_mut(), value);
@@ -472,7 +482,6 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
                 }
             }
             Err(slot) => {
-                // Vacant: ghost check → evict → insert → register in queue.
                 let loc = if shard.ghost_set.remove(&hash) {
                     LOC_MAIN
                 } else {
@@ -486,7 +495,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
                 let key_for_queue = key.clone();
 
                 unsafe {
-                    let occupied = shard.map.insert_in_slot(
+                    shard.map.insert_in_slot(
                         hash,
                         slot,
                         (key, CacheEntry::new(value, loc)),
