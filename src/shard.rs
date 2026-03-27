@@ -1,7 +1,28 @@
 use crate::util::CacheEntry;
-use core::hash::{BuildHasher, Hash};
+use core::hash::{BuildHasher, Hash, Hasher};
 use core::sync::atomic::Ordering;
 use std::collections::VecDeque;
+
+/// Identity hasher for u64 values that are already well-distributed hash outputs.
+/// Avoids the overhead of re-hashing through ahash/SipHash.
+pub(crate) struct IdentityHasher(u64);
+
+impl Hasher for IdentityHasher {
+    #[inline]
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, _: &[u8]) { unreachable!("IdentityHasher only supports u64") }
+    #[inline]
+    fn write_u64(&mut self, n: u64) { self.0 = n; }
+}
+
+#[derive(Clone)]
+pub(crate) struct IdentityBuildHasher;
+
+impl BuildHasher for IdentityBuildHasher {
+    type Hasher = IdentityHasher;
+    #[inline]
+    fn build_hasher(&self) -> IdentityHasher { IdentityHasher(0) }
+}
 
 pub(crate) const MAX_FREQ: u8 = 3;
 pub(crate) const LOC_SMALL: u8 = 0;
@@ -25,8 +46,8 @@ pub(crate) struct ShardData<K, V> {
     /// FIFO queue of recently evicted hash values (ghost set).
     pub(crate) ghost: VecDeque<u64>,
     /// Hash set for O(1) ghost membership test (stores hash values, not keys).
-    /// Uses ahash instead of default SipHash — faster for u64 keys.
-    pub(crate) ghost_set: hashbrown::HashSet<u64, ahash::RandomState>,
+    /// Uses identity hasher since values are already well-distributed ahash outputs.
+    pub(crate) ghost_set: hashbrown::HashSet<u64, IdentityBuildHasher>,
 
     /// Number of live entries currently in `small` queue.
     pub(crate) small_live: usize,
@@ -60,7 +81,7 @@ impl<K, V> ShardData<K, V> {
             small: VecDeque::with_capacity(small_cap.saturating_mul(2)),
             main: VecDeque::with_capacity(main_cap.saturating_mul(2)),
             ghost: VecDeque::with_capacity(ghost_cap),
-            ghost_set: hashbrown::HashSet::with_capacity_and_hasher(ghost_cap, ahash::RandomState::new()),
+            ghost_set: hashbrown::HashSet::with_capacity_and_hasher(ghost_cap, IdentityBuildHasher),
             small_live: 0,
             main_live: 0,
             shard_cap,
@@ -98,7 +119,7 @@ impl<K, V> Default for ShardData<K, V> {
             small: VecDeque::new(),
             main: VecDeque::new(),
             ghost: VecDeque::new(),
-            ghost_set: hashbrown::HashSet::with_hasher(ahash::RandomState::new()),
+            ghost_set: hashbrown::HashSet::with_hasher(IdentityBuildHasher),
             small_live: 0,
             main_live: 0,
             shard_cap: 0,

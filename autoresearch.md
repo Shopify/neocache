@@ -61,4 +61,21 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - default_shard_amount = 4*ncpu = 48 shards on 12-core — maybe too many for 30K items (625/shard)
 
 ## What's Been Tried
-(will be updated as experiments run)
+
+### Wins (kept)
+1. **bump_freq: CAS → load+store** (+7.8% throughput) — fetch_update CAS loop replaced with relaxed load+store. Safe because freq is a heuristic saturating at 3.
+2. **Ghost set: store hashes, not keys** (+0.5%) — HashSet<K> → HashSet<u64>. Eliminates key cloning for ghost entries. 
+3. **Pre-allocate map + queues** (p99: 1.50→1.46µs) — Pre-allocate hashbrown table to shard_cap, VecDeques to 2x capacity.
+4. **Eliminate double find() in eviction** (+1.7% eff_ops) — Single find() per eviction candidate.
+5. **Direct _insert bypasses Entry API** (p99: 1.46→1.38µs, tail: 1.33→1.25µs) — Occupied path: find_or_find_insert_slot + in-place swap. Avoids Entry enum dispatch.
+6. **Ghost set: hashbrown+ahash instead of std+SipHash** (+1-2% eff_ops) — Faster hashing for u64 ghost keys.
+
+### Dead ends (discarded)
+- **Fewer shards (64→32)**: -10% regression. Lock contention dominates at 2×ncpu.
+- **#[inline] on trait methods**: No effect — LTO already inlines monomorphized trait methods.
+
+### Current state
+- eff_ops_sec: ~24M (was 23.1M baseline → +3.9%)
+- p99: 1.38µs (was 1.50µs → -8%)
+- tail: 1.25µs (was 1.38µs → -9.4%)
+- hit_rate: 84.9% (unchanged)
