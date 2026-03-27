@@ -59,7 +59,13 @@ unsafe impl lock_api::RawRwLock for RawRwLock {
     #[inline]
     fn lock_shared(&self) {
         if !self.try_lock_shared_fast() {
-            self.lock_shared_slow();
+            // Quick retry before expensive slow path. Reader-reader CAS
+            // contention (stale state from concurrent reader) resolves
+            // immediately on a second attempt. Avoids slow path spin+park
+            // overhead for transient failures.
+            if !self.try_lock_shared_fast() {
+                self.lock_shared_slow();
+            }
         }
     }
 
