@@ -89,9 +89,19 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 - **Pre-clone key before lock**: wasted clone for 85% occupied writes
 - **Freq reset to 0 (S3-FIFO paper)**: faster eviction but -0.3% hit rate
 
-### Current state
-- eff_ops_sec: ~25.2M (was 23.1M baseline → +9.0%)
-- p99: ~1.21µs (was 1.50µs → -19.3%)
-- tail: ~1.08µs (was 1.38µs → -21.7%)
+### Additional wins (session 2)
+12. **find() fast path for occupied inserts** (+1.1% eff_ops) — Cheaper find() for 85% occupied case, find_or_find_insert_slot only for 15% vacant.
+13. **Hash-only eviction queues with u16 fingerprint** (+1-3% eff_ops) — VecDeque<u64> instead of VecDeque<(u64, K)>. u16 hash_check stored in CacheEntry padding (zero-cost). Eliminates all key cloning for queue entries.
+14. **5-run median benchmark** — More stable measurements for reliable comparisons.
+
+### Additional dead ends (session 2)
+- **u32 fingerprint**: no better than u16, slightly worse
+- **unreachable_unchecked in _insert**: no measurable gain, risky UB
+- **Direct insert() vs find_or_find_insert_slot for vacant**: identical perf, vacant is only 3% of ops
+
+### Current state (session 2)
+- eff_ops_sec: ~26.1M (was 23.1M baseline → +12.9%)
+- p99: ~1.25µs (was 1.50µs → -16.7%)
+- tail: ~1.12µs (was 1.38µs → -18.8%)
 - hit_rate: 85.2% (was 84.9% → +0.3%)
-- CV: variable 2-12% (environmental, 3-run median helps)
+- CV: ~2.1% (was 7-17% → excellent stability with 5-run median)
