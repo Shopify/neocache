@@ -156,7 +156,9 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
         K: Clone,
     {
         // Determine target location: ghost hit → main, otherwise → small.
-        let loc = if self.shard.ghost_set.remove(&self.key) {
+        // Ghost set stores hashes, not keys — hash collision false positives
+        // are benign (only affect initial queue placement).
+        let loc = if self.shard.ghost_set.remove(&self.hash) {
             LOC_MAIN
         } else {
             LOC_SMALL
@@ -198,7 +200,7 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
     where
         K: Clone,
     {
-        let loc = if self.shard.ghost_set.remove(&self.key) {
+        let loc = if self.shard.ghost_set.remove(&self.hash) {
             LOC_MAIN
         } else {
             LOC_SMALL

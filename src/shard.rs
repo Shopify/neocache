@@ -1,5 +1,4 @@
 use crate::util::CacheEntry;
-use ahash::RandomState;
 use core::hash::{BuildHasher, Hash};
 use core::sync::atomic::Ordering;
 use std::collections::HashSet;
@@ -24,10 +23,10 @@ pub(crate) struct ShardData<K, V> {
     pub(crate) small: VecDeque<(u64, K)>,
     /// FIFO queue with second-chance eviction (~90% of capacity).
     pub(crate) main: VecDeque<(u64, K)>,
-    /// FIFO queue of recently evicted keys (ghost set).
-    pub(crate) ghost: VecDeque<K>,
-    /// Hash set for O(1) ghost membership test.
-    pub(crate) ghost_set: HashSet<K, RandomState>,
+    /// FIFO queue of recently evicted hash values (ghost set).
+    pub(crate) ghost: VecDeque<u64>,
+    /// Hash set for O(1) ghost membership test (stores hash values, not keys).
+    pub(crate) ghost_set: HashSet<u64>,
 
     /// Number of live entries currently in `small` queue.
     pub(crate) small_live: usize,
@@ -59,7 +58,7 @@ impl<K, V> ShardData<K, V> {
             small: VecDeque::new(),
             main: VecDeque::new(),
             ghost: VecDeque::new(),
-            ghost_set: HashSet::with_hasher(RandomState::new()),
+            ghost_set: HashSet::new(),
             small_live: 0,
             main_live: 0,
             shard_cap,
@@ -97,7 +96,7 @@ impl<K, V> Default for ShardData<K, V> {
             small: VecDeque::new(),
             main: VecDeque::new(),
             ghost: VecDeque::new(),
-            ghost_set: HashSet::with_hasher(RandomState::new()),
+            ghost_set: HashSet::new(),
             small_live: 0,
             main_live: 0,
             shard_cap: 0,
@@ -184,10 +183,10 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             self.main_live += 1;
             // total_live is unchanged; the while loop handles main overflow.
         } else {
-            // Evict: remove from map, add key to ghost.
+            // Evict: remove from map, add hash to ghost.
             self.small_live -= 1;
             unsafe { self.map.remove(bucket); }
-            self.add_to_ghost(key);
+            self.add_to_ghost(hash);
         }
     }
 
@@ -236,15 +235,18 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         }
     }
 
-    /// Add a key to the ghost set, trimming the oldest if at capacity.
-    pub(crate) fn add_to_ghost(&mut self, key: K) {
+    /// Add a hash to the ghost set, trimming the oldest if at capacity.
+    /// Stores only the hash value (u64) instead of the full key, eliminating
+    /// key cloning. False positives from hash collisions are benign — they
+    /// only affect whether an entry starts in small vs main queue.
+    pub(crate) fn add_to_ghost(&mut self, hash: u64) {
         while self.ghost.len() >= self.ghost_cap {
             if let Some(old) = self.ghost.pop_front() {
                 self.ghost_set.remove(&old);
             }
         }
-        self.ghost_set.insert(key.clone());
-        self.ghost.push_back(key);
+        self.ghost_set.insert(hash);
+        self.ghost.push_back(hash);
     }
 
     /// Remove all cache entries and clear all eviction queues.
