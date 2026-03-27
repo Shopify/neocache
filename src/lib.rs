@@ -492,20 +492,19 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
                     shard.evict_one();
                 }
 
-                let key_for_queue = key.clone();
-
+                // Hash-only queues: no key clone needed.
                 unsafe {
                     shard.map.insert_in_slot(
                         hash,
                         slot,
-                        (key, CacheEntry::new(value, loc)),
+                        (key, CacheEntry::new(value, loc, hash)),
                     );
 
                     if loc == LOC_MAIN {
-                        shard.main.push_back((hash, key_for_queue));
+                        shard.main.push_back(hash);
                         shard.main_live += 1;
                     } else {
-                        shard.small.push_back((hash, key_for_queue));
+                        shard.small.push_back(hash);
                         shard.small_live += 1;
                     }
                 }

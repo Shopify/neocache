@@ -64,15 +64,19 @@ pub(crate) struct CacheEntry<V> {
     pub(crate) value: SharedValue<V>,
     pub(crate) freq: AtomicU8,
     pub(crate) loc: u8,
+    /// 16-bit hash fingerprint for eviction queue lookup.
+    /// Stored in padding bytes — CacheEntry stays at 16 bytes for V=pointer.
+    pub(crate) hash_check: u16,
 }
 
 impl<V> CacheEntry<V> {
     #[inline]
-    pub(crate) fn new(value: V, loc: u8) -> Self {
+    pub(crate) fn new(value: V, loc: u8, hash: u64) -> Self {
         Self {
             value: SharedValue::new(value),
             freq: AtomicU8::new(0),
             loc,
+            hash_check: hash as u16,
         }
     }
 
@@ -94,6 +98,7 @@ impl<V: Clone> Clone for CacheEntry<V> {
             value: self.value.clone(),
             freq: AtomicU8::new(self.freq.load(Ordering::Relaxed)),
             loc: self.loc,
+            hash_check: self.hash_check,
         }
     }
 }

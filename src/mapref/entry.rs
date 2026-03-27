@@ -171,23 +171,23 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
             self.shard.evict_one();
         }
 
-        let key_for_queue = self.key.clone();
+        
 
         unsafe {
             let occupied = self.shard.map.insert_in_slot(
                 self.hash,
                 self.slot,
-                (self.key, CacheEntry::new(value, loc)),
+                (self.key, CacheEntry::new(value, loc, self.hash)),
             );
 
             let (k, entry) = occupied.as_ref();
 
             // Register with the appropriate eviction queue.
             if loc == LOC_MAIN {
-                self.shard.main.push_back((self.hash, key_for_queue));
+                self.shard.main.push_back(self.hash);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small.push_back((self.hash, key_for_queue));
+                self.shard.small.push_back(self.hash);
                 self.shard.small_live += 1;
             }
 
@@ -212,20 +212,20 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
             self.shard.evict_one();
         }
 
-        let key_for_queue = self.key.clone();
+        
 
         unsafe {
             let bucket = self.shard.map.insert_in_slot(
                 self.hash,
                 self.slot,
-                (self.key.clone(), CacheEntry::new(value, loc)),
+                (self.key.clone(), CacheEntry::new(value, loc, self.hash)),
             );
 
             if loc == LOC_MAIN {
-                self.shard.main.push_back((self.hash, key_for_queue));
+                self.shard.main.push_back(self.hash);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small.push_back((self.hash, key_for_queue));
+                self.shard.small.push_back(self.hash);
                 self.shard.small_live += 1;
             }
 
@@ -323,9 +323,10 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
 
     /// Replaces the entry in-place with a new key-value pair and returns the old pair.
     pub fn replace_entry(self, value: V) -> (K, V) {
+        let hash_check = unsafe { self.bucket.as_ref().1.hash_check };
         let (k, entry) = mem::replace(
             unsafe { self.bucket.as_mut() },
-            (self.key, CacheEntry::new(value, crate::shard::LOC_SMALL)),
+            (self.key, CacheEntry::new(value, crate::shard::LOC_SMALL, hash_check as u64)),
         );
         (k, entry.value.into_inner())
     }

@@ -40,9 +40,11 @@ pub(crate) struct ShardData<K, V> {
 
     // ---- S3-FIFO eviction state ----
     /// FIFO queue of newly inserted entries (~10% of capacity).
-    pub(crate) small: VecDeque<(u64, K)>,
+    /// Stores only hash values — entries are found via hash_check fingerprint.
+    pub(crate) small: VecDeque<u64>,
     /// FIFO queue with second-chance eviction (~90% of capacity).
-    pub(crate) main: VecDeque<(u64, K)>,
+    /// Stores only hash values — entries are found via hash_check fingerprint.
+    pub(crate) main: VecDeque<u64>,
     /// FIFO queue of recently evicted hash values (ghost set).
     pub(crate) ghost: VecDeque<u64>,
     /// Hash set for O(1) ghost membership test (stores hash values, not keys).
@@ -175,19 +177,21 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     ///
     /// Falls through to `evict_from_main` if small is empty.
     fn evict_from_small(&mut self) {
-        // Single find() per candidate — reuse the bucket from the liveness check.
+        // Hash-only queues: find entries via hash_check fingerprint in CacheEntry.
+        // No key clones needed. Fingerprint collisions are <0.1% per lookup.
         loop {
-            let (hash, key) = match self.small.pop_front() {
+            let hash = match self.small.pop_front() {
                 None => {
                     self.evict_from_main();
                     return;
                 }
-                Some(entry) => entry,
+                Some(h) => h,
             };
 
-            let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
+            let hc = hash as u16;
+            let bucket = match self.map.find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_SMALL) {
                 Some(b) => b,
-                None => continue, // Stale (removed via explicit remove()), skip.
+                None => continue, // Stale or fingerprint miss, skip.
             };
 
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
@@ -196,7 +200,7 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
                 // Promote to main queue.
                 unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
                 self.small_live -= 1;
-                self.main.push_back((hash, key));
+                self.main.push_back(hash);
                 self.main_live += 1;
             } else {
                 // Evict: remove from map, add hash to ghost.
@@ -214,23 +218,23 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// * `freq == 0` → evict (total_live -= 1).
     fn evict_from_main(&mut self) {
         loop {
-            let (hash, key) = match self.main.pop_front() {
+            let hash = match self.main.pop_front() {
                 None => return,
-                Some(entry) => entry,
+                Some(h) => h,
             };
 
-            let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
+            let hc = hash as u16;
+            let bucket = match self.map.find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_MAIN) {
                 Some(b) => b,
-                None => continue, // Stale, skip.
+                None => continue, // Stale or fingerprint miss, skip.
             };
 
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
             if freq > 0 {
                 // Second chance: decrement freq and re-enqueue at the back.
-                // Simple store is safe — we hold the write lock exclusively.
                 unsafe { bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed); }
-                self.main.push_back((hash, key));
+                self.main.push_back(hash);
             } else {
                 // Evict.
                 self.main_live -= 1;
