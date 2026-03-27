@@ -154,42 +154,36 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     ///
     /// Falls through to `evict_from_main` if small is empty.
     fn evict_from_small(&mut self) {
-        // Find the next live entry in the small queue (skip lazily-removed keys).
-        let (hash, key) = loop {
-            match self.small.pop_front() {
+        // Single find() per candidate — reuse the bucket from the liveness check.
+        loop {
+            let (hash, key) = match self.small.pop_front() {
                 None => {
-                    // Small queue is drained; fall through to main.
                     self.evict_from_main();
                     return;
                 }
-                Some((h, k)) => {
-                    if self.map.find(h, |(mk, _)| mk == &k).is_some() {
-                        break (h, k);
-                    }
-                    // Stale (entry was removed via explicit remove()), skip.
-                }
+                Some(entry) => entry,
+            };
+
+            let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
+                Some(b) => b,
+                None => continue, // Stale (removed via explicit remove()), skip.
+            };
+
+            let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
+
+            if freq > 0 {
+                // Promote to main queue.
+                unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
+                self.small_live -= 1;
+                self.main.push_back((hash, key));
+                self.main_live += 1;
+            } else {
+                // Evict: remove from map, add hash to ghost.
+                self.small_live -= 1;
+                unsafe { self.map.remove(bucket); }
+                self.add_to_ghost(hash);
             }
-        };
-
-        let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
-            Some(b) => b,
-            None => return, // shouldn't happen, but be safe
-        };
-
-        let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
-
-        if freq > 0 {
-            // Promote to main queue.
-            unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
-            self.small_live -= 1;
-            self.main.push_back((hash, key));
-            self.main_live += 1;
-            // total_live is unchanged; the while loop handles main overflow.
-        } else {
-            // Evict: remove from map, add hash to ghost.
-            self.small_live -= 1;
-            unsafe { self.map.remove(bucket); }
-            self.add_to_ghost(hash);
+            return;
         }
     }
 
@@ -199,36 +193,23 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// * `freq == 0` → evict (total_live -= 1).
     fn evict_from_main(&mut self) {
         loop {
-            let (hash, key) = loop {
-                match self.main.pop_front() {
-                    None => return, // Main queue is empty; nothing to evict.
-                    Some((h, k)) => {
-                        if self.map.find(h, |(mk, _)| mk == &k).is_some() {
-                            break (h, k);
-                        }
-                        // Stale, skip.
-                    }
-                }
+            let (hash, key) = match self.main.pop_front() {
+                None => return,
+                Some(entry) => entry,
             };
 
             let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
                 Some(b) => b,
-                None => continue,
+                None => continue, // Stale, skip.
             };
 
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
             if freq > 0 {
                 // Second chance: decrement freq and re-enqueue at the back.
-                unsafe {
-                    let _ = bucket.as_ref().1.freq.fetch_update(
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                        |f| if f > 0 { Some(f - 1) } else { None },
-                    );
-                }
+                // Simple store is safe — we hold the write lock exclusively.
+                unsafe { bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed); }
                 self.main.push_back((hash, key));
-                // Continue the loop to find the next candidate.
             } else {
                 // Evict.
                 self.main_live -= 1;
