@@ -24,7 +24,7 @@ impl BuildHasher for IdentityBuildHasher {
     fn build_hasher(&self) -> IdentityHasher { IdentityHasher(0) }
 }
 
-pub(crate) const MAX_FREQ: u8 = 3;
+pub(crate) const MAX_FREQ: u8 = 7;
 pub(crate) const LOC_SMALL: u8 = 0;
 pub(crate) const LOC_MAIN: u8 = 1;
 
