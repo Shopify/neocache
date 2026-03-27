@@ -12,21 +12,43 @@ if [ ${PIPESTATUS[0]} -ne 0 ]; then
     exit 1
 fi
 
-# Run benchmark (rebuilds s3dashmap automatically via path dep)
 cd "$BENCH_DIR"
-OUTPUT=$(cargo run --release -- --caches s3dashmap 2>&1)
 
-# Parse the s3dashmap result line
-# Format: s3dashmap       25667941  10.0%     0.17     1.67     1.50     84.9%    21785144
-LINE=$(echo "$OUTPUT" | grep -E '^\s*s3dashmap\s')
+# Run benchmark 3 times for stability, take median eff_ops_sec
+declare -a EFF_OPS_RUNS=()
+declare -a OPS_SEC_RUNS=()
+declare -a LINES=()
 
-if [ -z "$LINE" ]; then
-    echo "ERROR: no s3dashmap result found"
-    echo "$OUTPUT"
-    exit 1
-fi
+for run in 1 2 3; do
+    OUTPUT=$(cargo run --release -- --caches s3dashmap 2>&1)
+    LINE=$(echo "$OUTPUT" | grep -E '^\s*s3dashmap\s')
+    if [ -z "$LINE" ]; then
+        echo "ERROR: no s3dashmap result found in run $run"
+        echo "$OUTPUT"
+        exit 1
+    fi
+    LINES+=("$LINE")
+    EFF=$(echo "$LINE" | awk '{print $8}')
+    OPS=$(echo "$LINE" | awk '{print $2}')
+    EFF_OPS_RUNS+=("$EFF")
+    OPS_SEC_RUNS+=("$OPS")
+done
 
-# Extract fields
+# Find median by sorting eff_ops_sec and picking the middle
+MEDIAN_IDX=$(printf '%s\n' "${EFF_OPS_RUNS[@]}" | sort -n | awk 'NR==2{print NR; exit}')
+# Sort and pick the middle value
+SORTED_EFF=($(printf '%s\n' "${EFF_OPS_RUNS[@]}" | sort -n))
+MEDIAN_EFF="${SORTED_EFF[1]}"
+
+# Find the run that produced the median eff_ops
+for i in 0 1 2; do
+    if [ "${EFF_OPS_RUNS[$i]}" = "$MEDIAN_EFF" ]; then
+        LINE="${LINES[$i]}"
+        break
+    fi
+done
+
+# Extract fields from the median run
 OPS_SEC=$(echo "$LINE" | awk '{print $2}')
 CV_PCT=$(echo "$LINE" | awk '{gsub(/%/,""); print $3}')
 P50_US=$(echo "$LINE" | awk '{print $4}')
@@ -35,13 +57,14 @@ TAIL_US=$(echo "$LINE" | awk '{print $6}')
 HIT_PCT=$(echo "$LINE" | awk '{gsub(/%/,""); print $7}')
 EFF_OPS=$(echo "$LINE" | awk '{print $8}')
 
+echo "METRIC eff_ops_sec=$EFF_OPS"
 echo "METRIC ops_sec=$OPS_SEC"
 echo "METRIC hit_pct=$HIT_PCT"
 echo "METRIC p50_us=$P50_US"
 echo "METRIC p99_us=$P99_US"
 echo "METRIC cv_pct=$CV_PCT"
-echo "METRIC eff_ops_sec=$EFF_OPS"
 echo "METRIC tail_us=$TAIL_US"
 
 echo ""
-echo "Result: $LINE"
+echo "3 runs: eff_ops = ${EFF_OPS_RUNS[0]} / ${EFF_OPS_RUNS[1]} / ${EFF_OPS_RUNS[2]}"
+echo "Median run: $LINE"

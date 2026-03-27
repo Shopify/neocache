@@ -11,8 +11,8 @@ The benchmark measures steady-state performance: cache is pre-populated, then
 7 measurement iterations run with shuffled order, reporting median throughput.
 
 ## Metrics
-- **Primary**: `ops_sec` (higher is better) — median throughput from benchmark
-- **Secondary**: `hit_pct` (hit rate %), `p50_us`, `p99_us`, `cv_pct`, `eff_ops_sec`
+- **Primary**: `eff_ops_sec` (higher is better) — effective ops/sec = throughput × hit_rate
+- **Secondary**: `ops_sec`, `hit_pct` (↑), `p50_us` (↓), `p99_us` (↓), `tail_us` (↓), `cv_pct` (↓ = more robust)
 
 ## How to Run
 `./autoresearch.sh` — rebuilds s3dashmap, runs benchmark, outputs METRIC lines.
