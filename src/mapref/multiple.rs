@@ -1,6 +1,6 @@
 //! Reference types yielded by multi-shard iterators.
-use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::HashMap;
+use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use core::hash::Hash;
 use core::ops::{Deref, DerefMut};
 use std::sync::Arc;

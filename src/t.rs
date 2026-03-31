@@ -1,12 +1,12 @@
 //! Internal `Map` trait, keeping the same shape as DashMap's `t.rs`.
 #![allow(missing_docs)]
 
+use crate::HashMap;
 use crate::iter::{Iter, IterMut};
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::mapref::entry::Entry;
 use crate::mapref::one::{Ref, RefMut};
 use crate::try_result::TryResult;
-use crate::HashMap;
 use core::borrow::Borrow;
 use core::hash::{BuildHasher, Hash};
 

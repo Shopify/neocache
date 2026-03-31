@@ -78,13 +78,15 @@ impl<V> CacheEntry<V> {
 
     #[inline]
     pub(crate) fn bump_freq(&self) {
-        let _ = self.freq.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |f| {
-            if f < crate::shard::MAX_FREQ {
-                Some(f + 1)
-            } else {
-                None
-            }
-        });
+        let _ = self
+            .freq
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |f| {
+                if f < crate::shard::MAX_FREQ {
+                    Some(f + 1)
+                } else {
+                    None
+                }
+            });
     }
 }
 
