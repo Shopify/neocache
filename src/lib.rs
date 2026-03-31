@@ -17,6 +17,7 @@ mod util;
 
 use crate::lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use ahash::RandomState;
 use core::borrow::Borrow;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
@@ -32,7 +33,6 @@ pub use read_only::ReadOnlyView;
 use shard::{LOC_SMALL, ShardData};
 pub use t::Map;
 use try_result::TryResult;
-use ahash::RandomState;
 
 /// The per-shard type: hashbrown raw table + S3-FIFO eviction state.
 ///
@@ -174,11 +174,12 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
         // enough capacity to avoid premature eviction from birthday-paradox
         // collisions. Minimum 8 entries per shard keeps eviction predictable.
         const MIN_PER_SHARD: usize = 8;
-        let effective_shards = if cache_capacity > 0 && cache_capacity / shard_amount < MIN_PER_SHARD {
-            (cache_capacity / MIN_PER_SHARD).next_power_of_two().max(2)
-        } else {
-            shard_amount
-        };
+        let effective_shards =
+            if cache_capacity > 0 && cache_capacity / shard_amount < MIN_PER_SHARD {
+                (cache_capacity / MIN_PER_SHARD).next_power_of_two().max(2)
+            } else {
+                shard_amount
+            };
 
         let shift = util::ptr_size_bits() - ncb(effective_shards);
 
@@ -252,11 +253,7 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
     }
 
     /// Removes an entry if `f(key, &mut value)` returns `true`.
-    pub fn remove_if_mut<Q>(
-        &self,
-        key: &Q,
-        f: impl FnOnce(&K, &mut V) -> bool,
-    ) -> Option<(K, V)>
+    pub fn remove_if_mut<Q>(&self, key: &Q, f: impl FnOnce(&K, &mut V) -> bool) -> Option<(K, V)>
     where
         K: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
@@ -448,7 +445,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     }
 
     fn _insert(&self, key: K, value: V) -> Option<V> {
-        use crate::shard::{LOC_SMALL, LOC_MAIN};
+        use crate::shard::{LOC_MAIN, LOC_SMALL};
         use crate::util::CacheEntry;
 
         let hash = self.hash_u64(&key);
@@ -494,11 +491,9 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
 
                 // Hash-only queues: no key clone needed.
                 unsafe {
-                    shard.map.insert_in_slot(
-                        hash,
-                        slot,
-                        (key, CacheEntry::new(value, loc, hash)),
-                    );
+                    shard
+                        .map
+                        .insert_in_slot(hash, slot, (key, CacheEntry::new(value, loc, hash)));
 
                     if loc == LOC_MAIN {
                         shard.main.push_back(hash);
@@ -699,19 +694,17 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     }
 
     fn _retain(&self, mut f: impl FnMut(&K, &mut V) -> bool) {
-        self.shards.iter().for_each(|s| {
-            unsafe {
-                let mut shard = s.write();
-                for bucket in shard.map.iter() {
-                    let (k, entry) = bucket.as_mut();
-                    if !f(&*k, entry.value.get_mut()) {
-                        let loc = entry.loc;
-                        shard.map.erase(bucket);
-                        if loc == LOC_SMALL {
-                            shard.small_live = shard.small_live.saturating_sub(1);
-                        } else {
-                            shard.main_live = shard.main_live.saturating_sub(1);
-                        }
+        self.shards.iter().for_each(|s| unsafe {
+            let mut shard = s.write();
+            for bucket in shard.map.iter() {
+                let (k, entry) = bucket.as_mut();
+                if !f(&*k, entry.value.get_mut()) {
+                    let loc = entry.loc;
+                    shard.map.erase(bucket);
+                    if loc == LOC_SMALL {
+                        shard.small_live = shard.small_live.saturating_sub(1);
+                    } else {
+                        shard.main_live = shard.main_live.saturating_sub(1);
                     }
                 }
             }

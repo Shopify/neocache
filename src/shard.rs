@@ -9,10 +9,16 @@ pub(crate) struct IdentityHasher(u64);
 
 impl Hasher for IdentityHasher {
     #[inline]
-    fn finish(&self) -> u64 { self.0 }
-    fn write(&mut self, _: &[u8]) { unreachable!("IdentityHasher only supports u64") }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("IdentityHasher only supports u64")
+    }
     #[inline]
-    fn write_u64(&mut self, n: u64) { self.0 = n; }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
 }
 
 #[derive(Clone)]
@@ -21,7 +27,9 @@ pub(crate) struct IdentityBuildHasher;
 impl BuildHasher for IdentityBuildHasher {
     type Hasher = IdentityHasher;
     #[inline]
-    fn build_hasher(&self) -> IdentityHasher { IdentityHasher(0) }
+    fn build_hasher(&self) -> IdentityHasher {
+        IdentityHasher(0)
+    }
 }
 
 pub(crate) const MAX_FREQ: u8 = 7;
@@ -189,7 +197,10 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             };
 
             let hc = hash as u16;
-            let bucket = match self.map.find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_SMALL) {
+            let bucket = match self
+                .map
+                .find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_SMALL)
+            {
                 Some(b) => b,
                 None => continue, // Stale or fingerprint miss, skip.
             };
@@ -198,14 +209,18 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
 
             if freq > 0 {
                 // Promote to main queue.
-                unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
+                unsafe {
+                    bucket.as_mut().1.loc = LOC_MAIN;
+                }
                 self.small_live -= 1;
                 self.main.push_back(hash);
                 self.main_live += 1;
             } else {
                 // Evict: remove from map, add hash to ghost.
                 self.small_live -= 1;
-                unsafe { self.map.remove(bucket); }
+                unsafe {
+                    self.map.remove(bucket);
+                }
                 self.add_to_ghost(hash);
             }
             return;
@@ -224,7 +239,10 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             };
 
             let hc = hash as u16;
-            let bucket = match self.map.find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_MAIN) {
+            let bucket = match self
+                .map
+                .find(hash, |(_, e)| e.hash_check == hc && e.loc == LOC_MAIN)
+            {
                 Some(b) => b,
                 None => continue, // Stale or fingerprint miss, skip.
             };
@@ -233,12 +251,16 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
 
             if freq > 0 {
                 // Second chance: decrement freq and re-enqueue at the back.
-                unsafe { bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed); }
+                unsafe {
+                    bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed);
+                }
                 self.main.push_back(hash);
             } else {
                 // Evict.
                 self.main_live -= 1;
-                unsafe { self.map.remove(bucket); }
+                unsafe {
+                    self.map.remove(bucket);
+                }
                 return;
             }
         }
@@ -283,10 +305,12 @@ impl<K: Eq + Hash, V> ShardData<K, V> {
         additional: usize,
         hasher: &S,
     ) -> Result<(), hashbrown::TryReserveError> {
-        self.map.try_reserve(additional, |(k, _v)| hasher.hash_one(k))
+        self.map
+            .try_reserve(additional, |(k, _v)| hasher.hash_one(k))
     }
 
     pub(crate) fn map_shrink_to<S: BuildHasher>(&mut self, min_capacity: usize, hasher: &S) {
-        self.map.shrink_to(min_capacity, |(k, _v)| hasher.hash_one(k));
+        self.map
+            .shrink_to(min_capacity, |(k, _v)| hasher.hash_one(k));
     }
 }
