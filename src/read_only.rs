@@ -1,18 +1,18 @@
 use crate::lock::RwLock;
 use crate::t::Map;
-use crate::{HashMap, S3DashMap};
+use crate::{HashMap, NeoCache};
 use ahash::RandomState;
 use core::borrow::Borrow;
 use core::fmt;
 use core::hash::{BuildHasher, Hash};
 use crossbeam_utils::CachePadded;
 
-/// A read-only view into a `S3DashMap`.
+/// A read-only view into a `NeoCache`.
 ///
-/// Obtained via [`S3DashMap::into_read_only`]. All reads are lock-free once
+/// Obtained via [`NeoCache::into_read_only`]. All reads are lock-free once
 /// the view is constructed, because the underlying map can no longer be written.
 pub struct ReadOnlyView<K, V, S = RandomState> {
-    pub(crate) map: S3DashMap<K, V, S>,
+    pub(crate) map: NeoCache<K, V, S>,
 }
 
 impl<K: Eq + Hash + Clone + Clone, V: Clone, S: Clone> Clone for ReadOnlyView<K, V, S> {
@@ -32,12 +32,12 @@ impl<K: Eq + Hash + Clone + fmt::Debug, V: fmt::Debug, S: BuildHasher + Clone> f
 }
 
 impl<K, V, S> ReadOnlyView<K, V, S> {
-    pub(crate) fn new(map: S3DashMap<K, V, S>) -> Self {
+    pub(crate) fn new(map: NeoCache<K, V, S>) -> Self {
         Self { map }
     }
 
-    /// Recovers the inner `S3DashMap`.
-    pub fn into_inner(self) -> S3DashMap<K, V, S> {
+    /// Recovers the inner `NeoCache`.
+    pub fn into_inner(self) -> NeoCache<K, V, S> {
         self.map
     }
 }

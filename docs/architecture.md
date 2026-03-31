@@ -4,7 +4,7 @@
 
 ```
 src/
-├── lib.rs            S3DashMap struct, public API, Map trait impl, IntoIterator, operators
+├── lib.rs            NeoCache struct, public API, Map trait impl, IntoIterator, operators
 ├── shard.rs          ShardData<K,V>: hashbrown table + S3-FIFO queues + evict_one()
 ├── util.rs           SharedValue<T>, CacheEntry<V>, map_in_place_2
 ├── lock.rs           Custom RwLock built on parking_lot_core
@@ -27,10 +27,10 @@ pub(crate) type HashMap<K, V> = ShardData<K, V>;
 
 Every module in the codebase uses the name `HashMap<K, V>` in lock-guard signatures, iterator types, and trait definitions. This alias means none of that code needed structural changes from the DashMap original — they simply operate on `ShardData` without knowing it. The only module that knows about `ShardData` by name is `shard.rs` itself and the top-level `lib.rs`.
 
-## S3DashMap struct
+## NeoCache struct
 
 ```rust
-pub struct S3DashMap<K, V, S = RandomState> {
+pub struct NeoCache<K, V, S = RandomState> {
     shift:          usize,                              // for shard index calculation
     shards:         Box<[CachePadded<RwLock<HashMap<K, V>>>]>,
     hasher:         S,
@@ -125,7 +125,7 @@ The `<< 7` rotation mixes the low bits of the hash before taking the top bits as
 
 ## Operator overloads
 
-`S3DashMap` implements four operators as shorthand:
+`NeoCache` implements four operators as shorthand:
 
 | Operator | Equivalent |
 |----------|-----------|
@@ -152,4 +152,4 @@ The `Arc` wrapping of guards allows multiple `RefMulti`/`RefMutMulti` items from
 
 ## ReadOnlyView
 
-`ReadOnlyView<K, V, S>` wraps an `S3DashMap` and exposes only read methods. It uses `_get_read_shard(i)` — which returns a raw pointer cast to `&'a ShardData` — rather than acquiring a lock, providing zero-lock-overhead reads when the caller can guarantee no concurrent mutations (e.g., after calling `into_read_only()` which consumes the map).
+`ReadOnlyView<K, V, S>` wraps an `NeoCache` and exposes only read methods. It uses `_get_read_shard(i)` — which returns a raw pointer cast to `&'a ShardData` — rather than acquiring a lock, providing zero-lock-overhead reads when the caller can guarantee no concurrent mutations (e.g., after calling `into_read_only()` which consumes the map).

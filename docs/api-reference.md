@@ -1,6 +1,6 @@
 # API Reference
 
-## `S3DashMap<K, V, S = RandomState>`
+## `NeoCache<K, V, S = RandomState>`
 
 The main concurrent map type. `K` and `V` are the key and value types. `S` is the hasher (defaults to `ahash::RandomState`).
 
@@ -12,48 +12,48 @@ The main concurrent map type. `K` and `V` are the key and value types. `S` is th
 
 ### Constructors
 
-#### `S3DashMap::new(cache_capacity: usize) -> Self`
+#### `NeoCache::new(cache_capacity: usize) -> Self`
 
 Creates a map with S3-FIFO eviction enabled. `cache_capacity` is the approximate maximum number of live entries across all shards. When the map is full, inserting a new key evicts an existing entry.
 
 ```rust
-let cache: S3DashMap<String, Vec<u8>> = S3DashMap::new(50_000);
+let cache: NeoCache<String, Vec<u8>> = NeoCache::new(50_000);
 ```
 
-#### `S3DashMap::new_unbounded() -> Self`
+#### `NeoCache::new_unbounded() -> Self`
 
-Creates a map with no eviction limit. The map grows without bound. Equivalent to `S3DashMap::new(0)`.
+Creates a map with no eviction limit. The map grows without bound. Equivalent to `NeoCache::new(0)`.
 
 ```rust
-let map: S3DashMap<u64, String> = S3DashMap::new_unbounded();
+let map: NeoCache<u64, String> = NeoCache::new_unbounded();
 ```
 
-#### `S3DashMap::with_shard_amount(cache_capacity: usize, shard_amount: usize) -> Self`
+#### `NeoCache::with_shard_amount(cache_capacity: usize, shard_amount: usize) -> Self`
 
 Creates a map with a specific shard count. `shard_amount` must be a power of two greater than 1. Use this to control the capacity overshoot from ceiling division or to tune lock contention.
 
 ```rust
 // Exact capacity: shard_cap = 256/4 = 64, total = 4*64 = 256.
-let cache = S3DashMap::<u64, u64>::with_shard_amount(256, 4);
+let cache = NeoCache::<u64, u64>::with_shard_amount(256, 4);
 ```
 
-#### `S3DashMap::with_hasher(hasher: S) -> Self`
+#### `NeoCache::with_hasher(hasher: S) -> Self`
 
 Creates an unbounded map with a custom hasher.
 
-#### `S3DashMap::with_capacity_and_hasher(cache_capacity: usize, hasher: S) -> Self`
+#### `NeoCache::with_capacity_and_hasher(cache_capacity: usize, hasher: S) -> Self`
 
 Creates a bounded map with a custom hasher and the default shard count.
 
-#### `S3DashMap::with_hasher_and_shard_amount(hasher: S, shard_amount: usize) -> Self`
+#### `NeoCache::with_hasher_and_shard_amount(hasher: S, shard_amount: usize) -> Self`
 
 Creates an unbounded map with a custom hasher and specific shard count.
 
-#### `S3DashMap::with_capacity_and_hasher_and_shard_amount(cache_capacity: usize, hasher: S, shard_amount: usize) -> Self`
+#### `NeoCache::with_capacity_and_hasher_and_shard_amount(cache_capacity: usize, hasher: S, shard_amount: usize) -> Self`
 
 The fully-specified constructor. All other constructors delegate here.
 
-#### `S3DashMap::default() -> Self`
+#### `NeoCache::default() -> Self`
 
 Creates an unbounded map. Requires `S: Default`.
 
@@ -240,7 +240,7 @@ for entry in &map {
 
 Returns an iterator of `RefMutMulti<'a, K, V>` items. Each item holds an `Arc<RwLockWriteGuard>`. Items from the same shard share the write guard — mutation of one item does not release the lock between items in the same shard.
 
-#### `IntoIterator for S3DashMap<K, V, S>` → `OwningIter<K, V, S>`
+#### `IntoIterator for NeoCache<K, V, S>` → `OwningIter<K, V, S>`
 
 Consumes the map and yields `(K, V)` pairs. Acquires the write lock for each shard, extracts the raw table via `mem::take`, releases the lock, then drains the table.
 
@@ -294,7 +294,7 @@ Consumes the map and returns a `ReadOnlyView` that exposes only immutable access
 
 ### `ReadOnlyView<K, V, S>`
 
-A wrapper around a consumed `S3DashMap` that provides lock-free read access. Use after all mutation is complete.
+A wrapper around a consumed `NeoCache` that provides lock-free read access. Use after all mutation is complete.
 
 | Method | Description |
 |--------|-------------|
@@ -307,7 +307,7 @@ A wrapper around a consumed `S3DashMap` that provides lock-free read access. Use
 | `iter()` | `impl Iterator<Item = (&K, &V)>` |
 | `keys()` | `impl Iterator<Item = &K>` |
 | `values()` | `impl Iterator<Item = &V>` |
-| `into_inner()` | Recover the `S3DashMap` |
+| `into_inner()` | Recover the `NeoCache` |
 
 ---
 
