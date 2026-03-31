@@ -122,8 +122,10 @@ Reads (`get`, `contains_key`, iteration) hold the per-shard read lock and bump t
 |-------------|-------------|
 | `new(capacity)` | Default shard count, eviction enabled |
 | `new_unbounded()` | Default shard count, no eviction |
-| `with_shard_amount(capacity, n)` | Custom shard count |
-| `with_capacity_and_hasher(capacity, hasher)` | Custom hasher |
+| `with_shard_amount(capacity, n)` | Custom shard count, eviction enabled |
+| `with_hasher(hasher)` | Custom hasher, no eviction |
+| `with_capacity_and_hasher(capacity, hasher)` | Custom hasher, eviction enabled |
+| `with_hasher_and_shard_amount(hasher, n)` | Custom hasher and shard count, no eviction |
 | `with_capacity_and_hasher_and_shard_amount(capacity, hasher, n)` | Full control |
 
 All DashMap methods are available: `insert`, `get`, `get_mut`, `remove`, `remove_if`, `contains_key`, `entry`, `try_entry`, `iter`, `iter_mut`, `retain`, `alter`, `alter_all`, `len`, `is_empty`, `capacity`, `clear`, `shrink_to_fit`, `try_reserve`, `into_iter`, `into_read_only`, and the `try_get` / `try_get_mut` non-blocking variants.

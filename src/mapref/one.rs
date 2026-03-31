@@ -75,8 +75,8 @@ impl<'a, K: Eq + Hash, V> Ref<'a, K, V> {
 impl<'a, K: Eq + Hash + Debug, V: Debug> Debug for Ref<'a, K, V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ref")
-            .field("k", &self.k)
-            .field("v", &self.v)
+            .field("k", self.key())
+            .field("v", self.value())
             .finish()
     }
 }
@@ -172,8 +172,8 @@ impl<'a, K: Eq + Hash, V> RefMut<'a, K, V> {
 impl<'a, K: Eq + Hash + Debug, V: Debug> Debug for RefMut<'a, K, V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RefMut")
-            .field("k", &self.k)
-            .field("v", &self.v)
+            .field("k", self.key())
+            .field("v", self.value())
             .finish()
     }
 }
@@ -248,8 +248,8 @@ impl<'a, K: Eq + Hash, V, T> MappedRef<'a, K, V, T> {
 impl<'a, K: Eq + Hash + Debug, V, T: Debug> Debug for MappedRef<'a, K, V, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MappedRef")
-            .field("k", &self.k)
-            .field("v", &self.v)
+            .field("k", self.key())
+            .field("v", self.value())
             .finish()
     }
 }
@@ -343,8 +343,8 @@ impl<'a, K: Eq + Hash, V, T> MappedRefMut<'a, K, V, T> {
 impl<'a, K: Eq + Hash + Debug, V, T: Debug> Debug for MappedRefMut<'a, K, V, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MappedRefMut")
-            .field("k", &self.k)
-            .field("v", &self.v)
+            .field("k", self.key())
+            .field("v", self.value())
             .finish()
     }
 }

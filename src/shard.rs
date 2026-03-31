@@ -5,8 +5,16 @@ use core::sync::atomic::Ordering;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+/// Maximum value the `freq` counter saturates at.
+///
+/// Capped at 3 so that entries with a burst of popularity don't become
+/// permanently immune to eviction once their access pattern changes.
 pub(crate) const MAX_FREQ: u8 = 3;
+
+/// [`CacheEntry::loc`](crate::util::CacheEntry) value: entry is in the small queue.
 pub(crate) const LOC_SMALL: u8 = 0;
+
+/// [`CacheEntry::loc`](crate::util::CacheEntry) value: entry is in the main queue (promoted from small).
 pub(crate) const LOC_MAIN: u8 = 1;
 
 /// The type stored inside each shard's `RwLock`. Contains the raw hashbrown
@@ -35,9 +43,13 @@ pub(crate) struct ShardData<K, V> {
     pub(crate) main_live: usize,
 
     /// Per-shard eviction threshold (0 = no eviction).
+    /// Per-shard eviction threshold (0 = no eviction).
     pub(crate) shard_cap: usize,
+    /// Hard limit for the small queue (~10 % of `shard_cap`, minimum 1).
     pub(crate) small_cap: usize,
+    /// Hard limit for the main queue (`shard_cap - small_cap`, minimum 1).
     pub(crate) main_cap: usize,
+    /// Hard limit for the ghost set (`shard_cap` entries).
     pub(crate) ghost_cap: usize,
 }
 
@@ -153,7 +165,8 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// Falls through to `evict_from_main` if small is empty.
     fn evict_from_small(&mut self) {
         // Find the next live entry in the small queue (skip lazily-removed keys).
-        let (hash, key) = loop {
+        // We capture the bucket from the first find to avoid a redundant second lookup.
+        let (hash, key, bucket) = loop {
             match self.small.pop_front() {
                 None => {
                     // Small queue is drained; fall through to main.
@@ -161,17 +174,12 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
                     return;
                 }
                 Some((h, k)) => {
-                    if self.map.find(h, |(mk, _)| mk == &k).is_some() {
-                        break (h, k);
+                    if let Some(b) = self.map.find(h, |(mk, _)| mk == &k) {
+                        break (h, k, b);
                     }
                     // Stale (entry was removed via explicit remove()), skip.
                 }
             }
-        };
-
-        let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
-            Some(b) => b,
-            None => return, // shouldn't happen, but be safe
         };
 
         let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
@@ -201,21 +209,17 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// * `freq == 0` → evict (total_live -= 1).
     fn evict_from_main(&mut self) {
         loop {
-            let (hash, key) = loop {
+            // Capture the bucket from the first find to avoid a redundant second lookup.
+            let (hash, key, bucket) = loop {
                 match self.main.pop_front() {
                     None => return, // Main queue is empty; nothing to evict.
                     Some((h, k)) => {
-                        if self.map.find(h, |(mk, _)| mk == &k).is_some() {
-                            break (h, k);
+                        if let Some(b) = self.map.find(h, |(mk, _)| mk == &k) {
+                            break (h, k, b);
                         }
                         // Stale, skip.
                     }
                 }
-            };
-
-            let bucket = match self.map.find(hash, |(mk, _)| mk == &key) {
-                Some(b) => b,
-                None => continue,
             };
 
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
