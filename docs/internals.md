@@ -37,14 +37,10 @@ This is safe because hashbrown's `remove` and `erase` operations never trigger a
 The raw API requires a `Fn(&T) -> u64` closure for rehashing during `try_reserve` and `shrink_to`. These are passed as:
 
 ```rust
-self.map.try_reserve(additional, |(k, _v)| {
-    let mut h = hasher.build_hasher();
-    k.hash(&mut h);
-    h.finish()
-})
+self.map.try_reserve(additional, |(k, _v)| hasher.hash_one(k))
 ```
 
-This closure is never called during normal lookup or eviction — only during allocation changes.
+`BuildHasher::hash_one` is a convenience wrapper around `build_hasher() + hash() + finish()`. This closure is never called during normal lookup or eviction — only during allocation changes.
 
 ## Lock design
 
@@ -162,15 +158,15 @@ Used in `map_in_place_2`, which calls a user-provided closure to replace a value
 
 ## Fork delta from DashMap 6.1.0
 
-The minimal changes from the original DashMap source:
+The changes from the original DashMap source:
 
 | File | Change |
 |------|--------|
 | `Cargo.toml` | Removed `dashmap = "6"` dep, added vendored deps |
 | `util.rs` | Added `CacheEntry<V>` struct |
-| `shard.rs` | New file — `ShardData<K,V>` with all S3-FIFO logic |
-| `lib.rs` | `type HashMap<K,V> = ShardData<K,V>`; all constructors take `cache_capacity`; `_get`/`_get_mut` call `bump_freq`; `_remove`/`_retain` decrement live counts; `_entry` uses `find_or_find_insert_slot`; `clear` calls `clear_all` |
-| `mapref/entry.rs` | `VacantEntry::insert` runs ghost check + eviction loop; `OccupiedEntry::remove` decrements live counts; `K: Clone` added to insert methods |
+| `shard.rs` | New file — `ShardData<K,V>` with all S3-FIFO logic; eviction functions use a single `find` pass (bucket captured on first lookup, avoiding a redundant second call) |
+| `lib.rs` | `type HashMap<K,V> = ShardData<K,V>`; all constructors take `cache_capacity`; `_get`/`_get_mut` call `bump_freq`; `_remove`/`_retain` decrement live counts; `_entry` uses `find_or_find_insert_slot`; `clear` calls `clear_all`; `#[inline]` on `hash_u64` and `determine_shard` |
+| `mapref/entry.rs` | `VacantEntry::insert` runs ghost check + eviction loop; `OccupiedEntry::remove` decrements live counts; `OccupiedEntry::replace_entry` preserves the entry's existing `loc` and `freq` (avoids silent live-count corruption for promoted entries); `K: Clone` added to insert methods |
 | `t.rs` | `K: Clone` added to `Map` trait bounds |
 | `read_only.rs` | `K: Clone` added to `Debug` impl |
 | `iter.rs` | `GuardOwningIter`/`GuardIter` changed to use `CacheEntry<V>`; `mem::take(&mut shard_wl.map)` instead of whole shard |

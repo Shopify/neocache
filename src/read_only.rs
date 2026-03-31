@@ -15,7 +15,7 @@ pub struct ReadOnlyView<K, V, S = RandomState> {
     pub(crate) map: NeoCache<K, V, S>,
 }
 
-impl<K: Eq + Hash + Clone + Clone, V: Clone, S: Clone> Clone for ReadOnlyView<K, V, S> {
+impl<K: Eq + Hash + Clone, V: Clone, S: Clone> Clone for ReadOnlyView<K, V, S> {
     fn clone(&self) -> Self {
         Self {
             map: self.map.clone(),

@@ -219,7 +219,7 @@ pub enum Entry<'a, K, V> {
 | `into_key()` | Owned `K` |
 | `remove()` | Remove, return `V` |
 | `remove_entry()` | Remove, return `(K, V)` |
-| `replace_entry(value)` | Replace, return old `(K, V)` |
+| `replace_entry(value)` | Replace value in-place; preserves the entry's eviction queue location (`small`/`main`) and frequency counter; returns old `(K, V)` |
 
 ---
 

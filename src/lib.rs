@@ -117,7 +117,11 @@ impl<K: Eq + Hash + Clone, V> NeoCache<K, V, RandomState> {
 
     /// Create a map with S3-FIFO eviction and a specified shard count.
     ///
-    /// `shard_amount` must be a power of two greater than 1.
+    /// `shard_amount` must be a power of two and at least 2.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shard_amount <= 1` or `shard_amount` is not a power of two.
     pub fn with_shard_amount(cache_capacity: usize, shard_amount: usize) -> Self {
         Self::with_capacity_and_hasher_and_shard_amount(
             cache_capacity,
@@ -155,6 +159,12 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> NeoCache<K, V, S> 
     }
 
     /// Create an unbounded map with a custom hasher and explicit shard count.
+    ///
+    /// `shard_amount` must be a power of two and at least 2.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shard_amount <= 1` or `shard_amount` is not a power of two.
     pub fn with_hasher_and_shard_amount(hasher: S, shard_amount: usize) -> Self {
         Self::with_capacity_and_hasher_and_shard_amount(0, hasher, shard_amount)
     }
@@ -162,6 +172,11 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> NeoCache<K, V, S> 
     /// Core constructor.
     ///
     /// `cache_capacity` is the total S3-FIFO eviction capacity (0 = disabled).
+    /// `shard_amount` must be a power of two and at least 2.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shard_amount <= 1` or `shard_amount` is not a power of two.
     pub fn with_capacity_and_hasher_and_shard_amount(
         cache_capacity: usize,
         hasher: S,
@@ -198,10 +213,12 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> NeoCache<K, V, S> 
         self.hash_u64(item) as usize
     }
 
+    #[inline]
     pub(crate) fn hash_u64<T: Hash>(&self, item: &T) -> u64 {
         self.hasher.hash_one(item)
     }
 
+    #[inline]
     pub(crate) fn determine_shard(&self, hash: usize) -> usize {
         // Leave the high 7 bits for HashBrown's SIMD tag.
         (hash << 7) >> self.shift
@@ -955,4 +972,29 @@ mod tests {
         }
         assert_eq!(map.len(), 1000);
     }
+
+    #[test]
+    fn test_replace_entry_returns_old_and_stores_new() {
+        // Verify the basic replace_entry contract:
+        // - returns the old (key, value) pair
+        // - stores the new value under the same key
+        // - map length is unchanged (no phantom insertion or removal)
+        let map = NeoCache::new(100);
+        map.insert(1u32, "original");
+
+        // Saturate the frequency counter before replacing.
+        for _ in 0..3 {
+            let _ = map.get(&1u32);
+        }
+
+        let old_pair = match map.entry(1u32) {
+            Entry::Occupied(occ) => occ.replace_entry("replaced"),
+            Entry::Vacant(_) => panic!("key must be present"),
+        };
+
+        assert_eq!(old_pair, (1u32, "original"));
+        assert_eq!(*map.get(&1u32).unwrap(), "replaced");
+        assert_eq!(map.len(), 1);
+    }
+
 }

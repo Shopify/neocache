@@ -315,12 +315,19 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         (k, entry.value.into_inner())
     }
 
-    /// Replaces the entry in-place with a new key-value pair and returns the old pair.
+    /// Replaces the value in-place and returns the old `(key, value)` pair.
+    ///
+    /// The eviction queue location (`small` or `main`) and frequency counter are
+    /// preserved from the existing entry, so a hot entry that was promoted to the
+    /// main queue stays there after replacement.
     pub fn replace_entry(self, value: V) -> (K, V) {
-        let (k, entry) = mem::replace(
-            unsafe { self.bucket.as_mut() },
-            (self.key, CacheEntry::new(value, crate::shard::LOC_SMALL)),
-        );
+        let (orig_loc, orig_freq) = unsafe {
+            let e = &self.bucket.as_ref().1;
+            (e.loc, e.freq.load(core::sync::atomic::Ordering::Relaxed))
+        };
+        let new_entry = CacheEntry::new(value, orig_loc);
+        new_entry.freq.store(orig_freq, core::sync::atomic::Ordering::Relaxed);
+        let (k, entry) = mem::replace(unsafe { self.bucket.as_mut() }, (self.key, new_entry));
         (k, entry.value.into_inner())
     }
 }
