@@ -1,6 +1,6 @@
 # s3dashmap
 
-A concurrent hash map with [S3-FIFO](https://s3fifo.com/) cache eviction, forked from [DashMap](https://github.com/xacrimon/dashmap) 6.1.0.
+A low-latency concurrent hash map with [S3-FIFO](https://s3fifo.com/) cache eviction, forked from [DashMap](https://github.com/xacrimon/dashmap) 6.1.0.
 
 S3-FIFO is a simple, scalable eviction policy that outperforms LRU in miss-ratio across a wide range of access patterns while being cheaper to implement: it uses only FIFO queues and a small ghost set.
 
