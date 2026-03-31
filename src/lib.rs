@@ -42,7 +42,7 @@ pub(crate) type HashMap<K, V> = ShardData<K, V>;
 
 // ── TryReserveError ──────────────────────────────────────────────────────────
 
-/// Error returned by [`S3DashMap::try_reserve`] when allocation fails.
+/// Error returned by [`NeoCache::try_reserve`] when allocation fails.
 #[non_exhaustive]
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TryReserveError {}
@@ -60,7 +60,7 @@ fn ncb(shard_amount: usize) -> usize {
     shard_amount.trailing_zeros() as usize
 }
 
-// ── S3DashMap ─────────────────────────────────────────────────────────────────
+// ── NeoCache ─────────────────────────────────────────────────────────────────
 
 /// A concurrent hash map with S3-FIFO cache eviction.
 ///
@@ -69,7 +69,7 @@ fn ncb(shard_amount: usize) -> usize {
 ///
 /// When `cache_capacity` is 0 (constructed via `new_unbounded`), eviction is
 /// disabled and the map grows without bound.
-pub struct S3DashMap<K, V, S = RandomState> {
+pub struct NeoCache<K, V, S = RandomState> {
     shift: usize,
     pub(crate) shards: Box<[CachePadded<RwLock<HashMap<K, V>>>]>,
     hasher: S,
@@ -79,7 +79,7 @@ pub struct S3DashMap<K, V, S = RandomState> {
 
 // ── Clone ─────────────────────────────────────────────────────────────────────
 
-impl<K: Eq + Hash + Clone, V: Clone, S: Clone> Clone for S3DashMap<K, V, S> {
+impl<K: Eq + Hash + Clone, V: Clone, S: Clone> Clone for NeoCache<K, V, S> {
     fn clone(&self) -> Self {
         let inner_shards = self
             .shards
@@ -97,7 +97,7 @@ impl<K: Eq + Hash + Clone, V: Clone, S: Clone> Clone for S3DashMap<K, V, S> {
 
 // ── Default ───────────────────────────────────────────────────────────────────
 
-impl<K, V, S> Default for S3DashMap<K, V, S>
+impl<K, V, S> Default for NeoCache<K, V, S>
 where
     K: Eq + Hash + Clone,
     S: Default + BuildHasher + Clone,
@@ -109,7 +109,7 @@ where
 
 // ── Constructors (ahash default hasher) ──────────────────────────────────────
 
-impl<K: Eq + Hash + Clone, V> S3DashMap<K, V, RandomState> {
+impl<K: Eq + Hash + Clone, V> NeoCache<K, V, RandomState> {
     /// Create a map with S3-FIFO eviction at the given capacity.
     pub fn new(cache_capacity: usize) -> Self {
         Self::with_capacity_and_hasher(cache_capacity, RandomState::new())
@@ -134,7 +134,7 @@ impl<K: Eq + Hash + Clone, V> S3DashMap<K, V, RandomState> {
 
 // ── Constructors (generic hasher) ─────────────────────────────────────────────
 
-impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S> {
+impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> NeoCache<K, V, S> {
     /// Converts the map into a lock-free [`ReadOnlyView`], consuming it.
     pub fn into_read_only(self) -> ReadOnlyView<K, V, S> {
         ReadOnlyView::new(self)
@@ -253,12 +253,12 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
     }
 
     /// Returns an iterator over shared references to all entries.
-    pub fn iter(&'a self) -> Iter<'a, K, V, S, S3DashMap<K, V, S>> {
+    pub fn iter(&'a self) -> Iter<'a, K, V, S, NeoCache<K, V, S>> {
         self._iter()
     }
 
     /// Returns an iterator over mutable references to all entries.
-    pub fn iter_mut(&'a self) -> IterMut<'a, K, V, S, S3DashMap<K, V, S>> {
+    pub fn iter_mut(&'a self) -> IterMut<'a, K, V, S, NeoCache<K, V, S>> {
         self._iter_mut()
     }
 
@@ -398,7 +398,7 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> S3DashMap<K, V, S>
 
 #[allow(private_interfaces)]
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, K, V, S>
-    for S3DashMap<K, V, S>
+    for NeoCache<K, V, S>
 {
     fn _shard_count(&self) -> usize {
         self.shards.len()
@@ -524,11 +524,11 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         }
     }
 
-    fn _iter(&'a self) -> Iter<'a, K, V, S, S3DashMap<K, V, S>> {
+    fn _iter(&'a self) -> Iter<'a, K, V, S, NeoCache<K, V, S>> {
         Iter::new(self)
     }
 
-    fn _iter_mut(&'a self) -> IterMut<'a, K, V, S, S3DashMap<K, V, S>> {
+    fn _iter_mut(&'a self) -> IterMut<'a, K, V, S, NeoCache<K, V, S>> {
         IterMut::new(self)
     }
 
@@ -725,7 +725,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
 impl<K: Eq + Hash + Clone + fmt::Debug, V: fmt::Debug, S: BuildHasher + Clone> fmt::Debug
-    for S3DashMap<K, V, S>
+    for NeoCache<K, V, S>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut pmap = f.debug_map();
@@ -740,7 +740,7 @@ impl<K: Eq + Hash + Clone + fmt::Debug, V: fmt::Debug, S: BuildHasher + Clone> f
 // ── Operator overloads ────────────────────────────────────────────────────────
 
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> Shl<(K, V)>
-    for &'a S3DashMap<K, V, S>
+    for &'a NeoCache<K, V, S>
 {
     type Output = Option<V>;
     fn shl(self, pair: (K, V)) -> Self::Output {
@@ -749,7 +749,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> Shl<(K, V)>
 }
 
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone, Q> Shr<&Q>
-    for &'a S3DashMap<K, V, S>
+    for &'a NeoCache<K, V, S>
 where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
@@ -761,7 +761,7 @@ where
 }
 
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone, Q> BitOr<&Q>
-    for &'a S3DashMap<K, V, S>
+    for &'a NeoCache<K, V, S>
 where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
@@ -773,7 +773,7 @@ where
 }
 
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone, Q> Sub<&Q>
-    for &'a S3DashMap<K, V, S>
+    for &'a NeoCache<K, V, S>
 where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
@@ -785,7 +785,7 @@ where
 }
 
 impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone, Q> BitAnd<&Q>
-    for &'a S3DashMap<K, V, S>
+    for &'a NeoCache<K, V, S>
 where
     K: Borrow<Q>,
     Q: Hash + Eq + ?Sized,
@@ -798,7 +798,7 @@ where
 
 // ── IntoIterator ──────────────────────────────────────────────────────────────
 
-impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> IntoIterator for S3DashMap<K, V, S> {
+impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> IntoIterator for NeoCache<K, V, S> {
     type Item = (K, V);
     type IntoIter = OwningIter<K, V, S>;
     fn into_iter(self) -> Self::IntoIter {
@@ -806,15 +806,15 @@ impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> IntoIterator for S3DashMap
     }
 }
 
-impl<'a, K: Eq + Hash + Clone, V, S: BuildHasher + Clone> IntoIterator for &'a S3DashMap<K, V, S> {
+impl<'a, K: Eq + Hash + Clone, V, S: BuildHasher + Clone> IntoIterator for &'a NeoCache<K, V, S> {
     type Item = RefMulti<'a, K, V>;
-    type IntoIter = Iter<'a, K, V, S, S3DashMap<K, V, S>>;
+    type IntoIter = Iter<'a, K, V, S, NeoCache<K, V, S>>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> Extend<(K, V)> for S3DashMap<K, V, S> {
+impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> Extend<(K, V)> for NeoCache<K, V, S> {
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, intoiter: I) {
         for pair in intoiter {
             self.insert(pair.0, pair.1);
@@ -823,10 +823,10 @@ impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> Extend<(K, V)> for S3DashM
 }
 
 impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone + Default> FromIterator<(K, V)>
-    for S3DashMap<K, V, S>
+    for NeoCache<K, V, S>
 {
     fn from_iter<I: IntoIterator<Item = (K, V)>>(intoiter: I) -> Self {
-        let mut map = S3DashMap::default();
+        let mut map = NeoCache::default();
         map.extend(intoiter);
         map
     }
@@ -840,14 +840,14 @@ mod tests {
 
     #[test]
     fn test_insert_and_get() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert("hello", 42u32);
         assert_eq!(*map.get("hello").unwrap(), 42);
     }
 
     #[test]
     fn test_insert_returns_old_value() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         assert_eq!(map.insert("k", 1u32), None);
         assert_eq!(map.insert("k", 2u32), Some(1));
         assert_eq!(*map.get("k").unwrap(), 2);
@@ -855,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_remove() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert(1u32, "a");
         let (k, v) = map.remove(&1u32).unwrap();
         assert_eq!(k, 1);
@@ -865,7 +865,7 @@ mod tests {
 
     #[test]
     fn test_get_bumps_freq() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert("key", 0u32);
         for _ in 0..5 {
             let _ = map.get("key");
@@ -878,7 +878,7 @@ mod tests {
         // Use with_shard_amount so cap divides evenly: shard_cap = 64/4 = 16.
         // Total live ≤ 16 * 4 = 64 == cap.
         let cap = 64usize;
-        let map = S3DashMap::with_shard_amount(cap, 4);
+        let map = NeoCache::with_shard_amount(cap, 4);
         for i in 0..200u64 {
             map.insert(i, i);
         }
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_entry_or_insert() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.entry("k").or_insert(1u32);
         map.entry("k").or_insert(99u32);
         assert_eq!(*map.get("k").unwrap(), 1);
@@ -896,7 +896,7 @@ mod tests {
 
     #[test]
     fn test_retain() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         for i in 0u32..10 {
             map.insert(i, i);
         }
@@ -909,7 +909,7 @@ mod tests {
 
     #[test]
     fn test_iter_count() {
-        let map = S3DashMap::new_unbounded();
+        let map = NeoCache::new_unbounded();
         for i in 0u32..20 {
             map.insert(i, i);
         }
@@ -918,7 +918,7 @@ mod tests {
 
     #[test]
     fn test_into_iter() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert(1u32, "a");
         map.insert(2u32, "b");
         let mut pairs: Vec<_> = map.into_iter().collect();
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         for i in 0u32..10 {
             map.insert(i, i);
         }
@@ -938,7 +938,7 @@ mod tests {
 
     #[test]
     fn test_try_get() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert("x", 7u32);
         assert_eq!(*map.try_get("x").unwrap(), 7);
         let _lock = map.get_mut("x");
@@ -947,7 +947,7 @@ mod tests {
 
     #[test]
     fn test_remove_if() {
-        let map = S3DashMap::new(100);
+        let map = NeoCache::new(100);
         map.insert(1u32, 10u32);
         assert!(map.remove_if(&1u32, |_, v| *v > 5).is_some());
         assert!(map.remove_if(&1u32, |_, v| *v > 5).is_none());
@@ -955,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_unbounded_grows_without_eviction() {
-        let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+        let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
         for i in 0..1000u64 {
             map.insert(i, i);
         }

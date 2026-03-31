@@ -265,7 +265,7 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
 }
 
 // Implement `try_reserve` and `shrink_to` as pass-throughs with the correct
-// hasher type. These are called from `S3DashMap` impl blocks.
+// hasher type. These are called from `NeoCache` impl blocks.
 impl<K: Eq + Hash, V> ShardData<K, V> {
     pub(crate) fn map_try_reserve<S: BuildHasher>(
         &mut self,

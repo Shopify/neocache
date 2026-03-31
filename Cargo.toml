@@ -1,11 +1,11 @@
 [package]
-name = "s3dashmap"
+name = "neocache"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "A concurrent HashMap with S3-FIFO cache eviction, forked from DashMap"
 license = "MIT"
-repository = "https://github.com/shopify-playground/s3dashmap"
+repository = "https://github.com/shopify-playground/neocache"
 keywords = ["cache", "concurrent", "hashmap", "eviction", "s3fifo"]
 categories = ["data-structures", "concurrency"]
 

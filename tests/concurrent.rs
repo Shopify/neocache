@@ -1,5 +1,5 @@
 //! Integration tests: concurrent correctness, capacity contracts, and S3-FIFO behaviour.
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
@@ -11,7 +11,7 @@ fn concurrent_inserts_all_visible() {
     const THREADS: usize = 8;
     const PER_THREAD: u64 = 1_000;
 
-    let map: Arc<S3DashMap<u64, u64>> = Arc::new(S3DashMap::new_unbounded());
+    let map: Arc<NeoCache<u64, u64>> = Arc::new(NeoCache::new_unbounded());
     let barrier = Arc::new(Barrier::new(THREADS));
 
     let handles: Vec<_> = (0..THREADS)
@@ -44,7 +44,7 @@ fn concurrent_entry_increments() {
     const INCREMENTS: u64 = 500;
     const KEY: &str = "counter";
 
-    let map: Arc<S3DashMap<&'static str, u64>> = Arc::new(S3DashMap::new_unbounded());
+    let map: Arc<NeoCache<&'static str, u64>> = Arc::new(NeoCache::new_unbounded());
     map.insert(KEY, 0u64);
 
     let handles: Vec<_> = (0..THREADS)
@@ -72,7 +72,7 @@ fn concurrent_readers_and_writer() {
     const READERS: usize = 6;
     const WRITES: usize = 200;
 
-    let map: Arc<S3DashMap<u32, u32>> = Arc::new(S3DashMap::new_unbounded());
+    let map: Arc<NeoCache<u32, u32>> = Arc::new(NeoCache::new_unbounded());
     for i in 0..100u32 {
         map.insert(i, i);
     }
@@ -114,7 +114,7 @@ fn capacity_contract_exact_divisor() {
     const SHARDS: usize = 4;
     const SHARD_CAP: usize = CAPACITY / SHARDS; // 16 exactly
 
-    let map: S3DashMap<u64, u64> = S3DashMap::with_shard_amount(CAPACITY, SHARDS);
+    let map: NeoCache<u64, u64> = NeoCache::with_shard_amount(CAPACITY, SHARDS);
 
     // Insert 3× capacity worth of entries.
     for i in 0..(CAPACITY * 3) as u64 {
@@ -137,7 +137,7 @@ fn capacity_contract_exact_divisor() {
 #[test]
 fn unbounded_no_eviction() {
     const N: usize = 1_000;
-    let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+    let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
     for i in 0..N as u64 {
         map.insert(i, i);
     }
@@ -149,7 +149,7 @@ fn unbounded_no_eviction() {
 /// A frequently accessed key should survive eviction pressure.
 #[test]
 fn hot_key_survives_eviction() {
-    let map: S3DashMap<u64, u64> = S3DashMap::with_shard_amount(32, 4); // shard_cap = 8
+    let map: NeoCache<u64, u64> = NeoCache::with_shard_amount(32, 4); // shard_cap = 8
 
     // Insert the hot key and access it enough times to max out its frequency.
     let hot_key = 0u64;
@@ -174,7 +174,7 @@ fn hot_key_survives_eviction() {
 #[test]
 fn ghost_set_promotes_on_reinsertion() {
     // Use a tiny map so we can force eviction predictably.
-    let map: S3DashMap<u64, u64> = S3DashMap::with_shard_amount(8, 4); // shard_cap = 2
+    let map: NeoCache<u64, u64> = NeoCache::with_shard_amount(8, 4); // shard_cap = 2
 
     // Insert enough cold entries to push key 0 out.
     for i in 0..40u64 {
@@ -197,7 +197,7 @@ fn ghost_set_promotes_on_reinsertion() {
 /// `remove` followed by immediate re-insert must work correctly.
 #[test]
 fn remove_then_reinsert() {
-    let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+    let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
     map.insert(1u64, 10);
     assert_eq!(map.remove(&1u64).map(|(_, v)| v), Some(10));
     assert!(map.get(&1u64).is_none());
@@ -208,7 +208,7 @@ fn remove_then_reinsert() {
 /// `retain` removes exactly the entries that don't satisfy the predicate.
 #[test]
 fn retain_correctness() {
-    let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+    let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
     for i in 0..20u64 {
         map.insert(i, i);
     }

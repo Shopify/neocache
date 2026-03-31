@@ -4,7 +4,7 @@ This document covers the implementation details that are not visible from the pu
 
 ## hashbrown raw API
 
-`s3dashmap` uses hashbrown's `raw` feature, which gives direct access to `RawTable<T>`. The raw API is used in preference to the safe `HashMap<K, V>` wrapper because:
+`neocache` uses hashbrown's `raw` feature, which gives direct access to `RawTable<T>`. The raw API is used in preference to the safe `HashMap<K, V>` wrapper because:
 
 1. The value type in the table is `(K, CacheEntry<V>)`, not just `V`. The raw table allows any `T` in the bucket.
 2. Eviction needs to call `remove` and `erase` on buckets found via `find`, without going through `HashMap`'s typed interface.

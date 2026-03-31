@@ -1,6 +1,6 @@
 # Usage Guide
 
-Practical patterns, common pitfalls, and recipes for `s3dashmap`.
+Practical patterns, common pitfalls, and recipes for `neocache`.
 
 ## Choosing a capacity
 
@@ -10,20 +10,20 @@ The `cache_capacity` argument is the approximate maximum number of entries acros
 
 ```rust
 // 1 million entries, 8 shards → shard_cap = 125_000 exactly
-let cache = S3DashMap::<String, Vec<u8>>::with_shard_amount(1_000_000, 8);
+let cache = NeoCache::<String, Vec<u8>>::with_shard_amount(1_000_000, 8);
 ```
 
 For most applications the default shard count is fine. On a 16-core machine it will be 64 shards, so `new(1_000_000)` gives a shard_cap of 15_625 and a true ceiling of 1_000_000 entries — the overshoot is 0 when 64 divides evenly.
 
 ## Sharing across threads
 
-`S3DashMap` is `Send + Sync`, so wrap it in an `Arc` to share between threads:
+`NeoCache` is `Send + Sync`, so wrap it in an `Arc` to share between threads:
 
 ```rust
 use std::sync::Arc;
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 
-let cache: Arc<S3DashMap<String, Vec<u8>>> = Arc::new(S3DashMap::new(100_000));
+let cache: Arc<NeoCache<String, Vec<u8>>> = Arc::new(NeoCache::new(100_000));
 
 let c = Arc::clone(&cache);
 std::thread::spawn(move || {
@@ -104,7 +104,7 @@ Use `extend` or `from_iter` to populate from an existing collection. Note that e
 
 ```rust
 let data: Vec<(String, u64)> = load_data();
-let cache: S3DashMap<String, u64> = S3DashMap::new(50_000);
+let cache: NeoCache<String, u64> = NeoCache::new(50_000);
 cache.extend(data);
 ```
 
@@ -113,7 +113,7 @@ cache.extend(data);
 After all writes are complete, convert to a `ReadOnlyView` for zero-overhead reads:
 
 ```rust
-let map: S3DashMap<u32, String> = build_lookup_table();
+let map: NeoCache<u32, String> = build_lookup_table();
 let view = map.into_read_only();
 
 // No lock acquired on read
@@ -203,10 +203,10 @@ For deterministic testing or when ahash is not suitable:
 
 ```rust
 use std::collections::hash_map::RandomState;
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 
-let cache: S3DashMap<String, u64, RandomState> =
-    S3DashMap::with_capacity_and_hasher(1_000, RandomState::new());
+let cache: NeoCache<String, u64, RandomState> =
+    NeoCache::with_capacity_and_hasher(1_000, RandomState::new());
 ```
 
 Or with a fixed seed for reproducible behavior in tests:
@@ -215,8 +215,8 @@ Or with a fixed seed for reproducible behavior in tests:
 use ahash::RandomState;
 
 let hasher = RandomState::with_seeds(1, 2, 3, 4);
-let cache: S3DashMap<u64, u64, RandomState> =
-    S3DashMap::with_capacity_and_hasher(1_000, hasher);
+let cache: NeoCache<u64, u64, RandomState> =
+    NeoCache::with_capacity_and_hasher(1_000, hasher);
 ```
 
 ## Using borrowed keys
@@ -224,7 +224,7 @@ let cache: S3DashMap<u64, u64, RandomState> =
 Like `HashMap`, lookup methods accept any `Q` where `K: Borrow<Q>`. This means you can look up `String` keys with `&str`:
 
 ```rust
-let cache: S3DashMap<String, u64> = S3DashMap::new(1_000);
+let cache: NeoCache<String, u64> = NeoCache::new(1_000);
 cache.insert("hello".to_string(), 1);
 
 let v = cache.get("hello");   // &str works directly
@@ -267,7 +267,7 @@ If `K` clone is expensive (e.g., long strings), consider:
 ```rust
 use std::sync::Arc;
 
-let cache: S3DashMap<Arc<str>, Vec<u8>> = S3DashMap::new(100_000);
+let cache: NeoCache<Arc<str>, Vec<u8>> = NeoCache::new(100_000);
 let key: Arc<str> = Arc::from("some_long_key");
 cache.insert(Arc::clone(&key), data);  // clone is O(1)
 ```

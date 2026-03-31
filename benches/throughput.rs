@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 use std::sync::Arc;
 use std::thread;
 
@@ -13,7 +13,7 @@ fn bench_insert(c: &mut Criterion) {
 
     g.bench_function("bounded", |b| {
         b.iter(|| {
-            let map: S3DashMap<u64, u64> = S3DashMap::new(N);
+            let map: NeoCache<u64, u64> = NeoCache::new(N);
             for i in 0..N as u64 {
                 map.insert(i, i);
             }
@@ -22,7 +22,7 @@ fn bench_insert(c: &mut Criterion) {
 
     g.bench_function("unbounded", |b| {
         b.iter(|| {
-            let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+            let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
             for i in 0..N as u64 {
                 map.insert(i, i);
             }
@@ -31,7 +31,7 @@ fn bench_insert(c: &mut Criterion) {
 }
 
 fn bench_get(c: &mut Criterion) {
-    let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+    let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
     for i in 0..N as u64 {
         map.insert(i, i);
     }
@@ -62,7 +62,7 @@ fn bench_remove(c: &mut Criterion) {
 
     g.bench_function("sequential", |b| {
         b.iter(|| {
-            let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+            let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
             for i in 0..N as u64 {
                 map.insert(i, i);
             }
@@ -85,7 +85,7 @@ fn bench_concurrent(c: &mut Criterion) {
         g.throughput(Throughput::Elements((per_thread * threads) as u64));
         g.bench_with_input(BenchmarkId::from_parameter(threads), &threads, |b, &t| {
             b.iter(|| {
-                let map: Arc<S3DashMap<u64, u64>> = Arc::new(S3DashMap::new(N));
+                let map: Arc<NeoCache<u64, u64>> = Arc::new(NeoCache::new(N));
                 let handles: Vec<_> = (0..t)
                     .map(|tid| {
                         let m = Arc::clone(&map);
@@ -106,7 +106,7 @@ fn bench_concurrent(c: &mut Criterion) {
 }
 
 fn bench_concurrent_read(c: &mut Criterion) {
-    let map: Arc<S3DashMap<u64, u64>> = Arc::new(S3DashMap::new_unbounded());
+    let map: Arc<NeoCache<u64, u64>> = Arc::new(NeoCache::new_unbounded());
     for i in 0..N as u64 {
         map.insert(i, i);
     }

@@ -1,9 +1,9 @@
-//! Iterator types for [`S3DashMap`](crate::S3DashMap).
+//! Iterator types for [`NeoCache`].
 use super::mapref::multiple::{RefMulti, RefMutMulti};
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::t::Map;
 use crate::util::CacheEntry;
-use crate::{HashMap, S3DashMap};
+use crate::{HashMap, NeoCache};
 use ahash::RandomState;
 use core::hash::{BuildHasher, Hash};
 use core::mem;
@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 /// Iterator that consumes the map and yields `(K, V)` pairs.
 pub struct OwningIter<K, V, S = RandomState> {
-    map: S3DashMap<K, V, S>,
+    map: NeoCache<K, V, S>,
     shard_i: usize,
     current: Option<GuardOwningIter<K, V>>,
 }
 
 impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> OwningIter<K, V, S> {
-    pub(crate) fn new(map: S3DashMap<K, V, S>) -> Self {
+    pub(crate) fn new(map: NeoCache<K, V, S>) -> Self {
         Self {
             map,
             shard_i: 0,
@@ -84,7 +84,7 @@ type GuardIterMut<'a, K, V> = (
 );
 
 /// Iterator over a map yielding immutable references.
-pub struct Iter<'a, K, V, S = RandomState, M = S3DashMap<K, V, S>> {
+pub struct Iter<'a, K, V, S = RandomState, M = NeoCache<K, V, S>> {
     map: &'a M,
     shard_i: usize,
     current: Option<GuardIter<'a, K, V>>,
@@ -158,7 +158,7 @@ impl<'a, K: Eq + Hash + Clone, V, S: 'a + BuildHasher + Clone, M: Map<'a, K, V, 
 }
 
 /// Iterator over a map yielding mutable references.
-pub struct IterMut<'a, K, V, S = RandomState, M = S3DashMap<K, V, S>> {
+pub struct IterMut<'a, K, V, S = RandomState, M = NeoCache<K, V, S>> {
     map: &'a M,
     shard_i: usize,
     current: Option<GuardIterMut<'a, K, V>>,

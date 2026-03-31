@@ -1,6 +1,6 @@
-# s3dashmap Documentation
+# neocache Documentation
 
-`s3dashmap` is a concurrent hash map with [S3-FIFO](https://s3fifo.com/) cache eviction, forked from [DashMap](https://github.com/xacrimon/dashmap) 6.1.0. It is designed as a drop-in replacement for DashMap in use cases where memory is bounded and eviction is needed.
+`neocache` is a concurrent hash map with [S3-FIFO](https://s3fifo.com/) cache eviction, forked from [DashMap](https://github.com/xacrimon/dashmap) 6.1.0. It is designed as a drop-in replacement for DashMap in use cases where memory is bounded and eviction is needed.
 
 ## Documents
 
@@ -15,7 +15,7 @@
 ## Quick orientation
 
 ```
-S3DashMap<K, V, S>           ← public map type (sharded)
+NeoCache<K, V, S>           ← public map type (sharded)
   └── shards: [RwLock<ShardData<K, V>>]
         └── ShardData<K, V>  ← one shard: hashbrown table + S3-FIFO queues
               ├── map: RawTable<(K, CacheEntry<V>)>

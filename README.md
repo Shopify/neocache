@@ -1,4 +1,4 @@
-# s3dashmap
+# neocache
 
 A concurrent hash map with [S3-FIFO](https://s3fifo.com/) cache eviction, forked from [DashMap](https://github.com/xacrimon/dashmap) 6.1.0.
 
@@ -6,7 +6,7 @@ S3-FIFO is a simple, scalable eviction policy that outperforms LRU in miss-ratio
 
 ## How it works
 
-`S3DashMap` is a sharded concurrent hash map. Each shard is an `RwLock<ShardData>` where `ShardData` holds both the raw hashbrown table and the complete S3-FIFO eviction state for that shard. There is **no global eviction lock** — eviction is concurrent with the same granularity as reads and writes.
+`NeoCache` is a sharded concurrent hash map. Each shard is an `RwLock<ShardData>` where `ShardData` holds both the raw hashbrown table and the complete S3-FIFO eviction state for that shard. There is **no global eviction lock** — eviction is concurrent with the same granularity as reads and writes.
 
 ### S3-FIFO algorithm
 
@@ -30,14 +30,14 @@ Each shard maintains three structures:
 
 ```toml
 [dependencies]
-s3dashmap = { path = "..." }
+neocache = { path = "..." }
 ```
 
 ```rust
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 
 // Create a map that evicts entries beyond 10_000 items.
-let cache: S3DashMap<String, Vec<u8>> = S3DashMap::new(10_000);
+let cache: NeoCache<String, Vec<u8>> = NeoCache::new(10_000);
 
 cache.insert("key".to_string(), vec![1, 2, 3]);
 
@@ -51,8 +51,8 @@ cache.remove("key");
 ### Unbounded map (no eviction)
 
 ```rust
-# use s3dashmap::S3DashMap;
-let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
+# use neocache::NeoCache;
+let map: NeoCache<u64, u64> = NeoCache::new_unbounded();
 ```
 
 ### Custom shard count
@@ -60,26 +60,26 @@ let map: S3DashMap<u64, u64> = S3DashMap::new_unbounded();
 The shard count must be a power of two greater than 1. Choosing a count that evenly divides your capacity gives a tighter bound on the maximum live entries.
 
 ```rust
-# use s3dashmap::S3DashMap;
+# use neocache::NeoCache;
 // 4 shards, 16 entries per shard, total capacity exactly 64.
-let cache = S3DashMap::<u64, u64>::with_shard_amount(64, 4);
+let cache = NeoCache::<u64, u64>::with_shard_amount(64, 4);
 ```
 
 ### Custom hasher
 
 ```rust
-use s3dashmap::S3DashMap;
+use neocache::NeoCache;
 use std::collections::hash_map::RandomState;
 
-let cache: S3DashMap<String, u64, RandomState> =
-    S3DashMap::with_capacity_and_hasher(1_000, RandomState::new());
+let cache: NeoCache<String, u64, RandomState> =
+    NeoCache::with_capacity_and_hasher(1_000, RandomState::new());
 ```
 
 ### Entry API
 
 ```rust
-# use s3dashmap::S3DashMap;
-# let cache: S3DashMap<String, u64> = S3DashMap::new(100);
+# use neocache::NeoCache;
+# let cache: NeoCache<String, u64> = NeoCache::new(100);
 cache.entry("counter".to_string())
     .and_modify(|v| *v += 1)
     .or_insert(0);
@@ -88,8 +88,8 @@ cache.entry("counter".to_string())
 ### Iteration
 
 ```rust
-# use s3dashmap::S3DashMap;
-# let cache: S3DashMap<String, u64> = S3DashMap::new(100);
+# use neocache::NeoCache;
+# let cache: NeoCache<String, u64> = NeoCache::new(100);
 for r in &cache {
     let (k, v) = r.pair();
     println!("{k}: {v:?}");
@@ -116,7 +116,7 @@ Reads (`get`, `contains_key`, iteration) hold the per-shard read lock and bump t
 
 ## API surface
 
-`S3DashMap` mirrors the DashMap 6.1.0 API. The main additions are the constructors that accept a `cache_capacity` argument:
+`NeoCache` mirrors the DashMap 6.1.0 API. The main additions are the constructors that accept a `cache_capacity` argument:
 
 | Constructor | Description |
 |-------------|-------------|
