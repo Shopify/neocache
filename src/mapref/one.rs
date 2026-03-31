@@ -1,6 +1,6 @@
 //! Single-key reference types returned by `get` and `get_mut`.
-use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::HashMap;
+use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use core::hash::Hash;
 use core::ops::{Deref, DerefMut};
 use std::fmt::{Debug, Formatter};

@@ -1,5 +1,4 @@
 //! Optional `rayon` parallel iteration support for [`NeoCache`].
-//!
 //! Enable with the `rayon` feature flag.
 use crate::NeoCache;
 use core::hash::{BuildHasher, Hash};

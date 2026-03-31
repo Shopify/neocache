@@ -178,7 +178,9 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
 
         if freq > 0 {
             // Promote to main queue.
-            unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
+            unsafe {
+                bucket.as_mut().1.loc = LOC_MAIN;
+            }
             self.small_live -= 1;
             self.main.push_back((hash, key));
             self.main_live += 1;
@@ -186,7 +188,9 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         } else {
             // Evict: remove from map, add key to ghost.
             self.small_live -= 1;
-            unsafe { self.map.remove(bucket); }
+            unsafe {
+                self.map.remove(bucket);
+            }
             self.add_to_ghost(key);
         }
     }
@@ -230,7 +234,9 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             } else {
                 // Evict.
                 self.main_live -= 1;
-                unsafe { self.map.remove(bucket); }
+                unsafe {
+                    self.map.remove(bucket);
+                }
                 return;
             }
         }
@@ -272,10 +278,12 @@ impl<K: Eq + Hash, V> ShardData<K, V> {
         additional: usize,
         hasher: &S,
     ) -> Result<(), hashbrown::TryReserveError> {
-        self.map.try_reserve(additional, |(k, _v)| hasher.hash_one(k))
+        self.map
+            .try_reserve(additional, |(k, _v)| hasher.hash_one(k))
     }
 
     pub(crate) fn map_shrink_to<S: BuildHasher>(&mut self, min_capacity: usize, hasher: &S) {
-        self.map.shrink_to(min_capacity, |(k, _v)| hasher.hash_one(k));
+        self.map
+            .shrink_to(min_capacity, |(k, _v)| hasher.hash_one(k));
     }
 }
