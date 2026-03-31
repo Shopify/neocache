@@ -1,4 +1,4 @@
-//! Optional `rayon` parallel iteration support for [`S3DashMap`](crate::S3DashMap).
+//! Optional `rayon` parallel iteration support for [`S3DashMap`].
 //!
 //! Enable with the `rayon` feature flag.
 use crate::S3DashMap;

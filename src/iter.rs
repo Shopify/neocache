@@ -1,4 +1,4 @@
-//! Iterator types for [`S3DashMap`](crate::S3DashMap).
+//! Iterator types for [`S3DashMap`].
 use super::mapref::multiple::{RefMulti, RefMutMulti};
 use crate::lock::{RwLockReadGuard, RwLockWriteGuard};
 use crate::t::Map;
