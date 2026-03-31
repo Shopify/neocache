@@ -1,9 +1,9 @@
 //! Entry API — occupied and vacant entry types.
 use super::one::RefMut;
+use crate::HashMap;
 use crate::lock::RwLockWriteGuard;
 use crate::shard::{LOC_MAIN, LOC_SMALL};
 use crate::util::CacheEntry;
-use crate::HashMap;
 use core::hash::Hash;
 use core::mem;
 
@@ -163,9 +163,7 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
         };
 
         // Evict entries until we have capacity (no-op when shard_cap == 0).
-        while self.shard.shard_cap > 0
-            && self.shard.total_live() >= self.shard.shard_cap
-        {
+        while self.shard.shard_cap > 0 && self.shard.total_live() >= self.shard.shard_cap {
             self.shard.evict_one();
         }
 
@@ -204,9 +202,7 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
             LOC_SMALL
         };
 
-        while self.shard.shard_cap > 0
-            && self.shard.total_live() >= self.shard.shard_cap
-        {
+        while self.shard.shard_cap > 0 && self.shard.total_live() >= self.shard.shard_cap {
             self.shard.evict_one();
         }
 

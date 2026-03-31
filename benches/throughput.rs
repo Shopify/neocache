@@ -117,27 +117,23 @@ fn bench_concurrent_read(c: &mut Criterion) {
     for &threads in &thread_counts {
         let per_thread = N / threads;
         g.throughput(Throughput::Elements((per_thread * threads) as u64));
-        g.bench_with_input(
-            BenchmarkId::from_parameter(threads),
-            &threads,
-            |b, &t| {
-                b.iter(|| {
-                    let handles: Vec<_> = (0..t)
-                        .map(|_| {
-                            let m = Arc::clone(&map);
-                            thread::spawn(move || {
-                                for i in 0..per_thread as u64 {
-                                    let _ = m.get(&i);
-                                }
-                            })
+        g.bench_with_input(BenchmarkId::from_parameter(threads), &threads, |b, &t| {
+            b.iter(|| {
+                let handles: Vec<_> = (0..t)
+                    .map(|_| {
+                        let m = Arc::clone(&map);
+                        thread::spawn(move || {
+                            for i in 0..per_thread as u64 {
+                                let _ = m.get(&i);
+                            }
                         })
-                        .collect();
-                    for h in handles {
-                        h.join().unwrap();
-                    }
-                })
-            },
-        );
+                    })
+                    .collect();
+                for h in handles {
+                    h.join().unwrap();
+                }
+            })
+        });
     }
 }
 
