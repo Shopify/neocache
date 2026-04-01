@@ -28,7 +28,7 @@ use iter::{Iter, IterMut, OwningIter};
 pub use mapref::entry::{Entry, OccupiedEntry, VacantEntry};
 use mapref::multiple::RefMulti;
 use mapref::one::{Ref, RefMut};
-use once_cell::sync::OnceCell;
+use std::sync::LazyLock;
 pub use read_only::ReadOnlyView;
 use shard::{LOC_SMALL, ShardData};
 pub use t::Map;
@@ -50,10 +50,10 @@ pub struct TryReserveError {}
 // ── Shard count helpers ───────────────────────────────────────────────────────
 
 fn default_shard_amount() -> usize {
-    static DEFAULT_SHARD_AMOUNT: OnceCell<usize> = OnceCell::new();
-    *DEFAULT_SHARD_AMOUNT.get_or_init(|| {
-        (std::thread::available_parallelism().map_or(1, usize::from) * 4).next_power_of_two()
-    })
+    static DEFAULT_SHARD_AMOUNT: LazyLock<usize> = LazyLock::new(|| {
+        (std::thread::available_parallelism().map_or(1, usize::from) * 16).next_power_of_two()
+    });
+    *DEFAULT_SHARD_AMOUNT
 }
 
 fn ncb(shard_amount: usize) -> usize {
@@ -184,6 +184,15 @@ impl<'a, K: Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> NeoCache<K, V, S> 
     ) -> Self {
         assert!(shard_amount > 1);
         assert!(shard_amount.is_power_of_two());
+
+        // If the requested shard count would make per-shard capacity < 4,
+        // reduce the shard count so each shard holds enough entries to
+        // avoid premature eviction on small caches (e.g. capacity=100).
+        let shard_amount = if cache_capacity > 0 && cache_capacity / shard_amount < 4 {
+            (cache_capacity / 4).next_power_of_two().max(2)
+        } else {
+            shard_amount
+        };
 
         let shift = util::ptr_size_bits() - ncb(shard_amount);
 
@@ -449,10 +458,57 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     }
 
     fn _insert(&self, key: K, value: V) -> Option<V> {
-        match self.entry(key) {
-            Entry::Occupied(mut o) => Some(o.insert(value)),
-            Entry::Vacant(v) => {
-                v.insert(value);
+        use crate::shard::LOC_MAIN;
+        use crate::util::CacheEntry;
+
+        let hash = self.hash_u64(&key);
+        let idx = self.determine_shard(hash as usize);
+        let mut shard = unsafe { self._yield_write_shard(idx) };
+
+        // Single probe: find existing entry OR locate insert slot.
+        // reserve(1) is ~5ns overhead on updates but saves ~40ns second
+        // probe on new-key inserts (under the write lock).
+        match shard.map.find_or_find_insert_slot(
+            hash,
+            |(k, _)| k == &key,
+            |(k, _)| self.hasher.hash_one(k),
+        ) {
+            Ok(bucket) => {
+                // Key exists — replace value.
+                let old = unsafe {
+                    core::mem::replace(bucket.as_mut().1.value.get_mut(), value)
+                };
+                Some(old)
+            }
+            Err(slot) => {
+                // New key — ghost check, eviction, insert at pre-found slot.
+                let loc = if shard.ghost_set.remove(&hash) {
+                    LOC_MAIN
+                } else {
+                    LOC_SMALL
+                };
+
+                while shard.shard_cap > 0 && shard.total_live() >= shard.shard_cap {
+                    shard.evict_one();
+                }
+
+                let key_for_queue = key.clone();
+                unsafe {
+                    shard.map.insert_in_slot(
+                        hash,
+                        slot,
+                        (key, CacheEntry::new(value, loc)),
+                    );
+                }
+
+                if loc == LOC_MAIN {
+                    shard.main_hashes.push_back(hash); shard.main_keys.push_back(key_for_queue);
+                    shard.main_live += 1;
+                } else {
+                    shard.small_hashes.push_back(hash); shard.small_keys.push_back(key_for_queue);
+                    shard.small_live += 1;
+                }
+
                 None
             }
         }

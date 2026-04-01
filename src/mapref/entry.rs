@@ -156,7 +156,7 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
         K: Clone,
     {
         // Determine target location: ghost hit → main, otherwise → small.
-        let loc = if self.shard.ghost_set.remove(&self.key) {
+        let loc = if self.shard.ghost_set.remove(&self.hash) {
             LOC_MAIN
         } else {
             LOC_SMALL
@@ -180,10 +180,10 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
 
             // Register with the appropriate eviction queue.
             if loc == LOC_MAIN {
-                self.shard.main.push_back((self.hash, key_for_queue));
+                self.shard.main_hashes.push_back(self.hash); self.shard.main_keys.push_back(key_for_queue);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small.push_back((self.hash, key_for_queue));
+                self.shard.small_hashes.push_back(self.hash); self.shard.small_keys.push_back(key_for_queue);
                 self.shard.small_live += 1;
             }
 
@@ -196,7 +196,7 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
     where
         K: Clone,
     {
-        let loc = if self.shard.ghost_set.remove(&self.key) {
+        let loc = if self.shard.ghost_set.remove(&self.hash) {
             LOC_MAIN
         } else {
             LOC_SMALL
@@ -216,10 +216,10 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
             );
 
             if loc == LOC_MAIN {
-                self.shard.main.push_back((self.hash, key_for_queue));
+                self.shard.main_hashes.push_back(self.hash); self.shard.main_keys.push_back(key_for_queue);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small.push_back((self.hash, key_for_queue));
+                self.shard.small_hashes.push_back(self.hash); self.shard.small_keys.push_back(key_for_queue);
                 self.shard.small_live += 1;
             }
 

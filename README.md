@@ -16,11 +16,11 @@ Each shard maintains three structures:
 |-----------|------|---------|
 | Small queue | ~10% of shard capacity | New entries enter here |
 | Main queue | ~90% of shard capacity | Hot entries (second-chance eviction) |
-| Ghost set | ~100% of shard capacity | Keys of recently evicted entries |
+| Ghost set | ~100% of shard capacity | Hashes of recently evicted entries |
 
 **Insertion:** new entries go to the Small queue. If the key was recently evicted (ghost hit), it goes directly to Main instead.
 
-**Eviction from Small:** if the entry's frequency counter is > 0, it is promoted to Main (freq ≥ 1 indicates it was accessed at least once). If freq == 0, it is evicted and its key is added to the ghost set.
+**Eviction from Small:** if the entry's frequency counter is > 0, it is promoted to Main (freq ≥ 1 indicates it was accessed at least once). If freq == 0, it is evicted and its hash is added to the ghost set.
 
 **Eviction from Main:** entries with freq > 0 get a second chance — freq is decremented and the entry is re-enqueued at the back of Main. Entries with freq == 0 are evicted.
 
@@ -104,7 +104,7 @@ for r in &cache {
 
 ### Capacity is approximate
 
-The total capacity guarantee is `shard_cap * shard_count`, where `shard_cap = ceil(capacity / shard_count)`. With the default shard count (4 × logical CPUs, rounded to the next power of two) and a capacity of `N`, the map may hold up to `N + shard_count - 1` live entries. Use `with_shard_amount` with a power-of-two shard count that divides your capacity evenly for an exact bound.
+The total capacity guarantee is `shard_cap * shard_count`, where `shard_cap = ceil(capacity / shard_count)`. The default shard count is `16 × logical CPUs` (rounded to the next power of two), automatically reduced for small caches so that each shard holds at least 4 entries. With a capacity of `N`, the map may hold up to `N + shard_count - 1` live entries. Use `with_shard_amount` with a power-of-two shard count that divides your capacity evenly for an exact bound.
 
 ### Lazy removal
 
@@ -139,7 +139,6 @@ All DashMap methods are available: `insert`, `get`, `get_mut`, `remove`, `remove
 | `parking_lot_core` | Custom reader-writer lock |
 | `crossbeam-utils` | Cache-line padding for shards |
 | `lock_api` | Lock trait abstractions |
-| `once_cell` | One-time initialization of default shard count |
 
 ## License
 
