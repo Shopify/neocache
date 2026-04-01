@@ -34,10 +34,19 @@ unsafe impl lock_api::RawRwLock for RawRwLock {
         if self
             .state
             .compare_exchange_weak(0, ONE_WRITER, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
+            .is_ok()
         {
-            self.lock_exclusive_slow();
+            return;
         }
+        // Quick retry: CAS may have failed due to readers releasing.
+        if self
+            .state
+            .compare_exchange_weak(0, ONE_WRITER, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            return;
+        }
+        self.lock_exclusive_slow();
     }
 
     #[inline]
@@ -59,7 +68,10 @@ unsafe impl lock_api::RawRwLock for RawRwLock {
     #[inline]
     fn lock_shared(&self) {
         if !self.try_lock_shared_fast() {
-            self.lock_shared_slow();
+            core::hint::spin_loop();
+            if !self.try_lock_shared_fast() {
+                self.lock_shared_slow();
+            }
         }
     }
 

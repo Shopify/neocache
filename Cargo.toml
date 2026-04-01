@@ -22,7 +22,6 @@ hashbrown = { version = "0.14.5", features = ["raw"], default-features = false }
 lock_api = "0.4.12"
 parking_lot_core = "0.9.12"
 crossbeam-utils = "0.8.21"
-once_cell = "1.21.3"
 ahash = { version = "0.8.12", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"], optional = true }
 rayon = { version = "1", optional = true }

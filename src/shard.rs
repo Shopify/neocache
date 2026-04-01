@@ -28,14 +28,18 @@ pub(crate) struct ShardData<K, V> {
     pub(crate) map: hashbrown::raw::RawTable<(K, CacheEntry<V>)>,
 
     // ---- S3-FIFO eviction state ----
-    /// FIFO queue of newly inserted entries (~10% of capacity).
-    pub(crate) small: VecDeque<(u64, K)>,
-    /// FIFO queue with second-chance eviction (~90% of capacity).
-    pub(crate) main: VecDeque<(u64, K)>,
-    /// FIFO queue of recently evicted keys (ghost set).
-    pub(crate) ghost: VecDeque<K>,
-    /// Hash set for O(1) ghost membership test.
-    pub(crate) ghost_set: HashSet<K, RandomState>,
+    // Split into hash and key arrays for cache locality during stale-entry scanning.
+    /// FIFO queue hashes (small queue, ~10% of capacity).
+    pub(crate) small_hashes: VecDeque<u64>,
+    /// FIFO queue keys (small queue).
+    pub(crate) small_keys: VecDeque<K>,
+    /// FIFO queue hashes (main queue, ~90% of capacity).
+    pub(crate) main_hashes: VecDeque<u64>,
+    /// FIFO queue keys (main queue).
+    pub(crate) main_keys: VecDeque<K>,
+    /// Hash set for O(1) ghost membership test (stores hashes, not keys).
+    /// Cleared entirely when it exceeds `ghost_cap` instead of FIFO trimming.
+    pub(crate) ghost_set: HashSet<u64, RandomState>,
 
     /// Number of live entries currently in `small` queue.
     pub(crate) small_live: usize,
@@ -68,9 +72,8 @@ impl<K, V> ShardData<K, V> {
         };
         Self {
             map: hashbrown::raw::RawTable::with_capacity(map_cap),
-            small: VecDeque::new(),
-            main: VecDeque::new(),
-            ghost: VecDeque::new(),
+            small_hashes: VecDeque::new(), small_keys: VecDeque::new(),
+            main_hashes: VecDeque::new(), main_keys: VecDeque::new(),
             ghost_set: HashSet::with_hasher(RandomState::new()),
             small_live: 0,
             main_live: 0,
@@ -106,9 +109,8 @@ impl<K, V> Default for ShardData<K, V> {
     fn default() -> Self {
         Self {
             map: hashbrown::raw::RawTable::new(),
-            small: VecDeque::new(),
-            main: VecDeque::new(),
-            ghost: VecDeque::new(),
+            small_hashes: VecDeque::new(), small_keys: VecDeque::new(),
+            main_hashes: VecDeque::new(), main_keys: VecDeque::new(),
             ghost_set: HashSet::with_hasher(RandomState::new()),
             small_live: 0,
             main_live: 0,
@@ -124,9 +126,8 @@ impl<K: Clone + Eq + Hash, V: Clone> Clone for ShardData<K, V> {
     fn clone(&self) -> Self {
         Self {
             map: self.map.clone(),
-            small: self.small.clone(),
-            main: self.main.clone(),
-            ghost: self.ghost.clone(),
+            small_hashes: self.small_hashes.clone(), small_keys: self.small_keys.clone(),
+            main_hashes: self.main_hashes.clone(), main_keys: self.main_keys.clone(),
             ghost_set: self.ghost_set.clone(),
             small_live: self.small_live,
             main_live: self.main_live,
@@ -148,6 +149,7 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
     /// Note: this may promote (small→main) without reducing `total_live`.
     /// The caller must loop (`while total_live >= shard_cap { evict_one() }`)
     /// to guarantee a free slot.
+    #[cold]
     pub(crate) fn evict_one(&mut self) {
         if self.small_live >= self.small_cap {
             self.evict_from_small();
@@ -167,17 +169,15 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         // Find the next live entry in the small queue (skip lazily-removed keys).
         // We capture the bucket from the first find to avoid a redundant second lookup.
         let (hash, key, bucket) = loop {
-            match self.small.pop_front() {
-                None => {
-                    // Small queue is drained; fall through to main.
+            match (self.small_hashes.pop_front(), self.small_keys.pop_front()) {
+                (None, _) | (_, None) => {
                     self.evict_from_main();
                     return;
                 }
-                Some((h, k)) => {
+                (Some(h), Some(k)) => {
                     if let Some(b) = self.map.find(h, |(mk, _)| mk == &k) {
                         break (h, k, b);
                     }
-                    // Stale (entry was removed via explicit remove()), skip.
                 }
             }
         };
@@ -185,12 +185,10 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
         if freq > 0 {
-            // Promote to main queue.
-            unsafe {
-                bucket.as_mut().1.loc = LOC_MAIN;
-            }
+            unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
             self.small_live -= 1;
-            self.main.push_back((hash, key));
+            self.main_hashes.push_back(hash);
+            self.main_keys.push_back(key);
             self.main_live += 1;
             // total_live is unchanged; the while loop handles main overflow.
         } else {
@@ -199,7 +197,7 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             unsafe {
                 self.map.remove(bucket);
             }
-            self.add_to_ghost(key);
+            self.add_to_ghost(hash);
         }
     }
 
@@ -211,13 +209,12 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         loop {
             // Capture the bucket from the first find to avoid a redundant second lookup.
             let (hash, key, bucket) = loop {
-                match self.main.pop_front() {
-                    None => return, // Main queue is empty; nothing to evict.
-                    Some((h, k)) => {
+                match (self.main_hashes.pop_front(), self.main_keys.pop_front()) {
+                    (None, _) | (_, None) => return,
+                    (Some(h), Some(k)) => {
                         if let Some(b) = self.map.find(h, |(mk, _)| mk == &k) {
                             break (h, k, b);
                         }
-                        // Stale, skip.
                     }
                 }
             };
@@ -225,15 +222,11 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
             if freq > 0 {
-                // Second chance: decrement freq and re-enqueue at the back.
                 unsafe {
-                    let _ = bucket.as_ref().1.freq.fetch_update(
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                        |f| if f > 0 { Some(f - 1) } else { None },
-                    );
+                    bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed);
                 }
-                self.main.push_back((hash, key));
+                self.main_hashes.push_back(hash);
+                self.main_keys.push_back(key);
                 // Continue the loop to find the next candidate.
             } else {
                 // Evict.
@@ -246,18 +239,17 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         }
     }
 
-    /// Add a key to the ghost set, trimming the oldest if at capacity.
-    pub(crate) fn add_to_ghost(&mut self, key: K) {
-        while self.ghost.len() >= self.ghost_cap {
-            if let Some(old) = self.ghost.pop_front() {
-                self.ghost_set.remove(&old);
-            }
+    /// Add a key hash to the ghost set, clearing it entirely if at capacity.
+    #[cold]
+    pub(crate) fn add_to_ghost(&mut self, hash: u64) {
+        if self.ghost_set.len() >= self.ghost_cap {
+            self.ghost_set.clear();
         }
-        self.ghost_set.insert(key.clone());
-        self.ghost.push_back(key);
+        self.ghost_set.insert(hash);
     }
 
     /// Remove all cache entries and clear all eviction queues.
+    #[cold]
     pub(crate) fn clear_all(&mut self) {
         // Safety: we own the write lock; no other references exist.
         unsafe {
@@ -265,9 +257,8 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
                 self.map.erase(bucket);
             }
         }
-        self.small.clear();
-        self.main.clear();
-        self.ghost.clear();
+        self.small_hashes.clear(); self.small_keys.clear();
+        self.main_hashes.clear(); self.main_keys.clear();
         self.ghost_set.clear();
         self.small_live = 0;
         self.main_live = 0;
