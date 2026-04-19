@@ -1,0 +1,16 @@
+neocache
+========
+
+This crate is a fork of DashMap by Joel Wejdenstål (xacrimon).
+
+Upstream source: https://github.com/xacrimon/dashmap
+Upstream license: MIT
+
+Substantial portions of the code in this repository — including the
+sharded storage layer, lock primitives, and iterator machinery in
+src/lib.rs, src/shard.rs, src/t.rs, src/lock.rs, and related modules —
+are derived from DashMap and remain under the original MIT license.
+The combined copyright is reflected in LICENSE.
+
+Modifications in this fork include the S3-FIFO eviction policy and
+related capacity / admission changes.
