@@ -28,9 +28,9 @@ use iter::{Iter, IterMut, OwningIter};
 pub use mapref::entry::{Entry, OccupiedEntry, VacantEntry};
 use mapref::multiple::RefMulti;
 use mapref::one::{Ref, RefMut};
-use std::sync::LazyLock;
 pub use read_only::ReadOnlyView;
 use shard::{LOC_SMALL, ShardData};
+use std::sync::LazyLock;
 pub use t::Map;
 use try_result::TryResult;
 
@@ -475,9 +475,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         ) {
             Ok(bucket) => {
                 // Key exists — replace value.
-                let old = unsafe {
-                    core::mem::replace(bucket.as_mut().1.value.get_mut(), value)
-                };
+                let old = unsafe { core::mem::replace(bucket.as_mut().1.value.get_mut(), value) };
                 Some(old)
             }
             Err(slot) => {
@@ -494,18 +492,18 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
 
                 let key_for_queue = key.clone();
                 unsafe {
-                    shard.map.insert_in_slot(
-                        hash,
-                        slot,
-                        (key, CacheEntry::new(value, loc)),
-                    );
+                    shard
+                        .map
+                        .insert_in_slot(hash, slot, (key, CacheEntry::new(value, loc)));
                 }
 
                 if loc == LOC_MAIN {
-                    shard.main_hashes.push_back(hash); shard.main_keys.push_back(key_for_queue);
+                    shard.main_hashes.push_back(hash);
+                    shard.main_keys.push_back(key_for_queue);
                     shard.main_live += 1;
                 } else {
-                    shard.small_hashes.push_back(hash); shard.small_keys.push_back(key_for_queue);
+                    shard.small_hashes.push_back(hash);
+                    shard.small_keys.push_back(key_for_queue);
                     shard.small_live += 1;
                 }
 
@@ -1052,5 +1050,4 @@ mod tests {
         assert_eq!(*map.get(&1u32).unwrap(), "replaced");
         assert_eq!(map.len(), 1);
     }
-
 }

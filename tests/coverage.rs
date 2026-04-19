@@ -564,8 +564,7 @@ fn mapped_ref_as_ref() {
     map.insert(1, "hello".to_string());
     let r = map.get(&1).unwrap();
     // Project &String → &String (identity), T = String : AsRef<str>
-    let mapped: neocache::mapref::one::MappedRef<'_, u64, String, String> =
-        r.map(|s: &String| s);
+    let mapped: neocache::mapref::one::MappedRef<'_, u64, String, String> = r.map(|s: &String| s);
     let as_str: &str = mapped.as_ref();
     assert_eq!(as_str, "hello");
 }
@@ -577,8 +576,8 @@ fn mapped_ref_map_chain() {
     map.insert(1, ("hello".to_string(), 99u32));
 
     let r = map.get(&1).unwrap();
-    let m1 = r.map(|t: &(String, u32)| &t.0);   // → &String
-    let m2 = m1.map(|s: &String| s);             // identity chain
+    let m1 = r.map(|t: &(String, u32)| &t.0); // → &String
+    let m2 = m1.map(|s: &String| s); // identity chain
     assert_eq!(*m2.value(), "hello");
 }
 

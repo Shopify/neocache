@@ -72,8 +72,10 @@ impl<K, V> ShardData<K, V> {
         };
         Self {
             map: hashbrown::raw::RawTable::with_capacity(map_cap),
-            small_hashes: VecDeque::new(), small_keys: VecDeque::new(),
-            main_hashes: VecDeque::new(), main_keys: VecDeque::new(),
+            small_hashes: VecDeque::new(),
+            small_keys: VecDeque::new(),
+            main_hashes: VecDeque::new(),
+            main_keys: VecDeque::new(),
             ghost_set: HashSet::with_hasher(RandomState::new()),
             small_live: 0,
             main_live: 0,
@@ -109,8 +111,10 @@ impl<K, V> Default for ShardData<K, V> {
     fn default() -> Self {
         Self {
             map: hashbrown::raw::RawTable::new(),
-            small_hashes: VecDeque::new(), small_keys: VecDeque::new(),
-            main_hashes: VecDeque::new(), main_keys: VecDeque::new(),
+            small_hashes: VecDeque::new(),
+            small_keys: VecDeque::new(),
+            main_hashes: VecDeque::new(),
+            main_keys: VecDeque::new(),
             ghost_set: HashSet::with_hasher(RandomState::new()),
             small_live: 0,
             main_live: 0,
@@ -126,8 +130,10 @@ impl<K: Clone + Eq + Hash, V: Clone> Clone for ShardData<K, V> {
     fn clone(&self) -> Self {
         Self {
             map: self.map.clone(),
-            small_hashes: self.small_hashes.clone(), small_keys: self.small_keys.clone(),
-            main_hashes: self.main_hashes.clone(), main_keys: self.main_keys.clone(),
+            small_hashes: self.small_hashes.clone(),
+            small_keys: self.small_keys.clone(),
+            main_hashes: self.main_hashes.clone(),
+            main_keys: self.main_keys.clone(),
             ghost_set: self.ghost_set.clone(),
             small_live: self.small_live,
             main_live: self.main_live,
@@ -185,7 +191,9 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
         if freq > 0 {
-            unsafe { bucket.as_mut().1.loc = LOC_MAIN; }
+            unsafe {
+                bucket.as_mut().1.loc = LOC_MAIN;
+            }
             self.small_live -= 1;
             self.main_hashes.push_back(hash);
             self.main_keys.push_back(key);
@@ -257,8 +265,10 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
                 self.map.erase(bucket);
             }
         }
-        self.small_hashes.clear(); self.small_keys.clear();
-        self.main_hashes.clear(); self.main_keys.clear();
+        self.small_hashes.clear();
+        self.small_keys.clear();
+        self.main_hashes.clear();
+        self.main_keys.clear();
         self.ghost_set.clear();
         self.small_live = 0;
         self.main_live = 0;
