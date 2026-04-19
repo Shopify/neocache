@@ -180,10 +180,12 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
 
             // Register with the appropriate eviction queue.
             if loc == LOC_MAIN {
-                self.shard.main_hashes.push_back(self.hash); self.shard.main_keys.push_back(key_for_queue);
+                self.shard.main_hashes.push_back(self.hash);
+                self.shard.main_keys.push_back(key_for_queue);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small_hashes.push_back(self.hash); self.shard.small_keys.push_back(key_for_queue);
+                self.shard.small_hashes.push_back(self.hash);
+                self.shard.small_keys.push_back(key_for_queue);
                 self.shard.small_live += 1;
             }
 
@@ -216,10 +218,12 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
             );
 
             if loc == LOC_MAIN {
-                self.shard.main_hashes.push_back(self.hash); self.shard.main_keys.push_back(key_for_queue);
+                self.shard.main_hashes.push_back(self.hash);
+                self.shard.main_keys.push_back(key_for_queue);
                 self.shard.main_live += 1;
             } else {
-                self.shard.small_hashes.push_back(self.hash); self.shard.small_keys.push_back(key_for_queue);
+                self.shard.small_hashes.push_back(self.hash);
+                self.shard.small_keys.push_back(key_for_queue);
                 self.shard.small_live += 1;
             }
 
@@ -326,7 +330,9 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
             (e.loc, e.freq.load(core::sync::atomic::Ordering::Relaxed))
         };
         let new_entry = CacheEntry::new(value, orig_loc);
-        new_entry.freq.store(orig_freq, core::sync::atomic::Ordering::Relaxed);
+        new_entry
+            .freq
+            .store(orig_freq, core::sync::atomic::Ordering::Relaxed);
         let (k, entry) = mem::replace(unsafe { self.bucket.as_mut() }, (self.key, new_entry));
         (k, entry.value.into_inner())
     }
