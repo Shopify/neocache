@@ -1,6 +1,7 @@
 [package]
 name = "neocache"
 version = "0.1.0"
+authors = ["Shopify Engineering <careers@shopify.com>"]
 edition = "2024"
 rust-version = "1.88"
 description = "A concurrent HashMap with S3-FIFO cache eviction, forked from DashMap"
