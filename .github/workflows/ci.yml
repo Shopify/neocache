@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Default to least-privilege. Individual jobs may opt up if needed.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
+# Cancel in-progress runs of the same workflow on the same ref when a new
+# commit is pushed.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Build & test ────────────────────────────────────────────────────────────
+  # Cross-OS, cross-toolchain matrix. The MSRV (1.88) is the only required
+  # toolchain; beta is allowed to fail without blocking PRs.
+  test:
+    name: Test (${{ matrix.os }} / ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: full toolchain coverage.
+          - { os: ubuntu-latest, rust: "1.88" }
+          - { os: ubuntu-latest, rust: stable }
+          - { os: ubuntu-latest, rust: beta }
+          # macOS: MSRV + stable.
+          - { os: macos-latest, rust: "1.88" }
+          - { os: macos-latest, rust: stable }
+          # Windows: stable only — keeps CI minutes in check while still
+          # validating the parking_lot_core path on a non-POSIX target.
+          - { os: windows-latest, rust: stable }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.os }}-${{ matrix.rust }}
+      - name: cargo test --all-features
+        run: cargo test --all-features --no-fail-fast
+
+  # ── Clippy (MSRV) ──────────────────────────────────────────────────────────
+  # Required: clippy must pass on the project's MSRV (1.88).
+  clippy:
+    name: Clippy (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: "1.88"
+          components: clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: clippy-1.88
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+
+  # ── Clippy (stable, advisory) ──────────────────────────────────────────────
+  # Surface new lints from latest stable so the MSRV-pinned `clippy` job is
+  # not the only signal. Allowed to fail to keep PRs unblocked when stable
+  # introduces new lints; we expect the team to clear these promptly.
+  clippy-stable:
+    name: Clippy (stable, advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: clippy-stable
+      - run: cargo clippy --all-features --all-targets -- -D warnings
+
+  # ── Rustfmt ────────────────────────────────────────────────────────────────
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - run: cargo fmt --check
+
+  # ── Docs ───────────────────────────────────────────────────────────────────
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: "1.88"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: docs-1.88
+      - run: cargo doc --all-features --no-deps
+
+  # ── cargo-deny ─────────────────────────────────────────────────────────────
+  # License allow-list, banned crates, advisory database, and source policy.
+  # See `deny.toml` for configuration.
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@7769b73c2ec98c38dfcf2e18c83cfd4880c038c1 # v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny --all-features check

@@ -1,0 +1,24 @@
+# CODEOWNERS for Shopify/neocache
+#
+# Required reviewers for pull requests, evaluated in order — the LAST matching
+# pattern wins. See https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo.
+*                       @Shopify/neocache-maintainers
+
+# Concurrency primitives, unsafe code, and the public API surface — these
+# changes warrant extra scrutiny and should not bypass review.
+/src/lock.rs            @Shopify/neocache-maintainers
+/src/util.rs            @Shopify/neocache-maintainers
+/src/shard.rs           @Shopify/neocache-maintainers
+/src/lib.rs             @Shopify/neocache-maintainers
+/src/mapref/            @Shopify/neocache-maintainers
+
+# Build, CI, and supply-chain configuration.
+/Cargo.toml             @Shopify/neocache-maintainers
+/Cargo.lock             @Shopify/neocache-maintainers
+/.github/               @Shopify/neocache-maintainers
+/.github/workflows/     @Shopify/neocache-maintainers
+
+# Security policy and disclosure.
+/SECURITY.md            @Shopify/neocache-maintainers

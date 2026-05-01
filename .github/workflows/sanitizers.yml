@@ -1,0 +1,81 @@
+name: Sanitizers
+
+# Run the concurrency-heavy test suite under sanitizers. ThreadSanitizer
+# catches data races that Miri cannot (real OS-thread interleavings), and
+# AddressSanitizer catches use-after-free / out-of-bounds in the unsafe
+# pointer arithmetic used by `Ref`, `RefMut`, and the eviction sweep.
+#
+# Sanitizers require nightly Rust and Linux (the tooling is most mature on
+# x86_64-unknown-linux-gnu).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsan:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    env:
+      # `-Zsanitizer=thread` instruments every memory access; `-Cdebuginfo=2`
+      # gives readable race reports.
+      RUSTFLAGS: "-Zsanitizer=thread -Cdebuginfo=2"
+      RUSTDOCFLAGS: "-Zsanitizer=thread"
+      # TSAN's runtime options. `halt_on_error=1` makes the first race fail
+      # the job; `second_deadlock_stack=1` improves deadlock diagnostics.
+      TSAN_OPTIONS: "halt_on_error=1 second_deadlock_stack=1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: nightly
+          components: rust-src
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: tsan
+      # `-Zbuild-std` rebuilds std with the sanitizer enabled so library
+      # internals (Mutex, atomics, etc.) are also instrumented.
+      - name: cargo test (concurrent suite, TSAN)
+        run: |
+          cargo test \
+            -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            --all-features \
+            --test concurrent \
+            -- --test-threads=4
+
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-Zsanitizer=address -Cdebuginfo=2"
+      RUSTDOCFLAGS: "-Zsanitizer=address"
+      ASAN_OPTIONS: "detect_leaks=0:detect_stack_use_after_return=1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master @ 2026-03-27
+        with:
+          toolchain: nightly
+          components: rust-src
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: asan
+      - name: cargo test (full suite, ASAN)
+        run: |
+          cargo test \
+            -Zbuild-std \
+            --target x86_64-unknown-linux-gnu \
+            --all-features

@@ -1,0 +1,61 @@
+[package]
+name = "neocache"
+version = "0.1.0"
+authors = ["Shopify Engineering <opensource@shopify.com>"]
+edition = "2024"
+rust-version = "1.88"
+description = "A concurrent HashMap with S3-FIFO cache eviction, forked from DashMap"
+license = "MIT"
+repository = "https://github.com/Shopify/neocache"
+homepage = "https://github.com/Shopify/neocache"
+documentation = "https://docs.rs/neocache"
+readme = "README.md"
+keywords = ["cache", "concurrent", "hashmap", "eviction", "s3fifo"]
+categories = ["data-structures", "concurrency"]
+
+[features]
+serde = ["dep:serde"]
+rayon = ["dep:rayon"]
+
+[dependencies]
+# hashbrown is pinned to 0.14.x. In 0.15+ the `raw` module became private,
+# removing RawTable, Bucket, InsertSlot and RawIter — the exact APIs this crate
+# uses for zero-copy per-shard storage and eviction. Upgrading requires a full
+# rewrite of the storage layer around the new HashTable API.
+hashbrown = { version = "0.14.5", features = ["raw"], default-features = false }
+lock_api = "0.4.12"
+parking_lot_core = "0.9.12"
+crossbeam-utils = "0.8.21"
+ahash = { version = "0.8.12", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"], optional = true }
+rayon = { version = "1", optional = true }
+
+[dev-dependencies]
+rand = "0.9.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# `loom` is enabled only when the `loom` cfg is set (see `[lints]` /
+# the `loom.yml` workflow). It substitutes `Arc`, `thread`, atomics, and
+# locks with model-checked equivalents that explore concurrent
+# interleavings exhaustively. Tests gated behind `cfg(loom)` use it; the
+# regular `cargo test` build does not load loom at all.
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[[test]]
+name = "loom"
+path = "tests/loom.rs"
+# Loom tests are gated behind `cfg(loom)`; the test binary compiles to an
+# empty target under regular `cargo test`. CI runs them via `loom.yml`
+# with `RUSTFLAGS="--cfg loom"`.
+harness = true
+
+[lints.rust]
+# Recognise the `loom` cfg flag so a regular `cargo build` does not warn
+# about the gated `#[cfg(loom)]` blocks (rust 1.80+ flags unknown cfg
+# names as `unexpected_cfgs`).
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
