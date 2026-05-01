@@ -31,7 +31,7 @@ serde = { version = "1", features = ["derive"], optional = true }
 rayon = { version = "1", optional = true }
 
 [dev-dependencies]
-rand = "0.9.3"
+rand = "0.10.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 
 # `loom` is enabled only when the `loom` cfg is set (see `[lints]` /
