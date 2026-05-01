@@ -24,14 +24,14 @@ LRU requires a write operation on every cache hit to move the entry to the list 
 Each shard maintains three structures:
 
 ```
-Small queue  (VecDeque<(hash, K)>)  ← ~10% of shard_cap
-Main queue   (VecDeque<(hash, K)>)  ← ~90% of shard_cap
-Ghost set    (VecDeque<K> + HashSet<K, ahash>)  ← ~100% of shard_cap
+Small queue  (VecDeque<u64> + VecDeque<K>)  ← ~10% of shard_cap
+Main queue   (VecDeque<u64> + VecDeque<K>)  ← ~90% of shard_cap
+Ghost set    (HashSet<u64, ahash>)          ← ~100% of shard_cap
 ```
 
-The queues store `(hash, K)` pairs, not pointers. This allows O(1) lookup of a queue entry in the hashbrown table via `shard.map.find(hash, |k| k == &key)` without needing to carry the map's hasher into the eviction path.
+Each FIFO queue is stored as two parallel `VecDeque`s — one of `u64` hashes and one of `K` keys — rather than a single `VecDeque<(u64, K)>`. The eviction sweep skips stale entries by calling `shard.map.find(hash, ...)`, so iterating only the contiguous hash array is cache-friendly: stale skips do not pay for `K`-sized strides. When an entry is processed, the corresponding `K` is popped from the key array in lock-step.
 
-The ghost set is a `HashSet<K>` backed by a separate ahash instance (independent of the map's hasher) for O(1) membership testing, alongside a `VecDeque<K>` to track insertion order for bounded eviction of ghost entries.
+The ghost set stores **hashes**, not keys. This avoids cloning the key on eviction and keeps ghost membership tests allocation-free. Membership is determined by `ghost_set.contains(&hash)` on insert; a hit promotes the new entry directly to the Main queue.
 
 ## Frequency counter
 
@@ -120,9 +120,11 @@ evict_from_main()
 
 ### Ghost set management
 
-When an entry is evicted from small (freq == 0), its key is added to the ghost set. The ghost set is bounded to `ghost_cap` entries (equal to `shard_cap`). When it overflows, the oldest ghost key is popped from the front of the ghost `VecDeque` and removed from `ghost_set`.
+When an entry is evicted from small (freq == 0), its hash is added to the ghost set. The ghost set is bounded to `ghost_cap` entries (equal to `shard_cap`).
 
-On the next insert of a ghost-hit key, the entry bypasses small and goes directly to main. This models the "recently seen but evicted" promotion that gives S3-FIFO its low miss ratio on re-access patterns.
+When the set is at capacity, the **entire set is cleared** before the new hash is inserted (see `ShardData::add_to_ghost`). This is a deliberate simplification of the policy described in the original S3-FIFO paper, which uses a FIFO-bounded ghost queue: clearing in bulk avoids maintaining a parallel insertion-order queue and keeps the eviction path allocation-free, at the cost of a hit-rate dip immediately after each clear. In practice the ghost set is sized to `shard_cap`, so a clear happens at most once per `shard_cap` distinct evictions per shard.
+
+On the next insert of a ghost-hit key, the entry bypasses small and goes directly to main. This models the "recently seen but evicted" promotion that gives S3-FIFO its low miss ratio on re-access patterns. After a bulk clear, recently-evicted hashes that have not yet been re-inserted lose this promotion until they are re-evicted into the new ghost set.
 
 ## Lazy removal
 

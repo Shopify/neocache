@@ -1,0 +1,27 @@
+# CODEOWNERS for Shopify/neocache
+#
+# Required reviewers for pull requests, evaluated in order — the LAST matching
+# pattern wins. See https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# TODO: replace @sam-obeid with the owning Shopify team handle once the
+#       repository is transferred to its long-term home (e.g. @Shopify/<team>).
+
+# Default owner for everything in the repo.
+*                       @sam-obeid
+
+# Concurrency primitives, unsafe code, and the public API surface — these
+# changes warrant extra scrutiny and should not bypass review.
+/src/lock.rs            @sam-obeid
+/src/util.rs            @sam-obeid
+/src/shard.rs           @sam-obeid
+/src/lib.rs             @sam-obeid
+/src/mapref/            @sam-obeid
+
+# Build, CI, and supply-chain configuration.
+/Cargo.toml             @sam-obeid
+/Cargo.lock             @sam-obeid
+/.github/               @sam-obeid
+/.github/workflows/     @sam-obeid
+
+# Security policy and disclosure.
+/SECURITY.md            @sam-obeid

@@ -364,7 +364,15 @@ pub enum TryResult<R> {
 }
 ```
 
-Methods: `is_present()`, `is_absent()`, `is_locked()`, `unwrap()`, `expect(msg)`.
+Methods:
+
+| Method | Returns | Notes |
+|--------|---------|-------|
+| `is_present()` | `bool` | True if the entry was found and the lock was acquired. |
+| `is_absent()` | `bool` | True if the shard was accessible but the key was not found. |
+| `is_locked()` | `bool` | True if the shard was locked and the attempt was aborted. |
+| `unwrap()` | `R` | Returns the inner value; **panics** on `Absent` or `Locked`. |
+| `try_unwrap()` | `Option<R>` | Returns `Some(r)` for `Present`, `None` otherwise. |
 
 ---
 

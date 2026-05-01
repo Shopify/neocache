@@ -188,9 +188,15 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             }
         };
 
+        // SAFETY: `bucket` was just returned by `self.map.find` above; the
+        // shard write lock (`&mut self`) excludes every other accessor, so
+        // no concurrent insert/remove can have invalidated it.
         let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
         if freq > 0 {
+            // SAFETY: same bucket as above; we hold the shard write lock
+            // (`&mut self`), so there is no other live reference to the
+            // entry's `loc` field.
             unsafe {
                 bucket.as_mut().1.loc = LOC_MAIN;
             }
@@ -202,6 +208,9 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
         } else {
             // Evict: remove from map, add key to ghost.
             self.small_live -= 1;
+            // SAFETY: same bucket as above; under the shard write lock no
+            // other thread can be looking at this slot, so removing it is
+            // sound.
             unsafe {
                 self.map.remove(bucket);
             }
@@ -227,9 +236,16 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
                 }
             };
 
+            // SAFETY: `bucket` was just returned by `self.map.find` in the
+            // inner loop; the shard write lock (`&mut self`) excludes every
+            // other accessor.
             let freq = unsafe { bucket.as_ref().1.freq.load(Ordering::Relaxed) };
 
             if freq > 0 {
+                // SAFETY: same bucket as above; under the shard write lock
+                // no concurrent reader can be calling `bump_freq`, so the
+                // store cannot interleave with a fetch_update on this
+                // entry.
                 unsafe {
                     bucket.as_ref().1.freq.store(freq - 1, Ordering::Relaxed);
                 }
@@ -239,6 +255,8 @@ impl<K: Clone + Eq + Hash, V> ShardData<K, V> {
             } else {
                 // Evict.
                 self.main_live -= 1;
+                // SAFETY: same bucket as above; under the shard write lock
+                // no other thread can be looking at this slot.
                 unsafe {
                     self.map.remove(bucket);
                 }

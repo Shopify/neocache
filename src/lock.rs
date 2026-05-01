@@ -14,6 +14,14 @@ pub struct RawRwLock {
     state: AtomicUsize,
 }
 
+// SAFETY: implements `lock_api::RawRwLock` faithfully against the bit
+// layout documented above (`READERS_PARKED`, `WRITERS_PARKED`, `ONE_READER`,
+// `ONE_WRITER`). `try_lock_*` use Acquire on success and Relaxed on
+// failure, the lock-release paths use Release, and `parking_lot_core`
+// supplies the cross-thread unpark primitives. The `GuardMarker =
+// GuardNoSend` setting prevents the lock_api guard types from being sent
+// across threads by default; the crate provides explicit `unsafe impl Send`
+// on its public ref types where the actual safety argument has been made.
 unsafe impl lock_api::RawRwLock for RawRwLock {
     #[allow(clippy::declare_interior_mutable_const)]
     const INIT: Self = Self {
@@ -85,6 +93,12 @@ unsafe impl lock_api::RawRwLock for RawRwLock {
     }
 }
 
+// SAFETY: `downgrade` atomically converts the writer-held state to a
+// single-reader state with `Release` ordering, publishing all writes from
+// the writer to subsequent readers. Then any parked readers are
+// unparked. This satisfies `RawRwLockDowngrade`'s contract that the
+// caller-held write lock is replaced with a read lock without a window in
+// which the lock is unheld.
 unsafe impl lock_api::RawRwLockDowngrade for RawRwLock {
     #[inline]
     unsafe fn downgrade(&self) {
@@ -92,6 +106,11 @@ unsafe impl lock_api::RawRwLockDowngrade for RawRwLock {
             .state
             .fetch_and(ONE_READER | WRITERS_PARKED, Ordering::Release);
         if state & READERS_PARKED != 0 {
+            // SAFETY: the address `(self as *const _ as usize) + 1` is the
+            // queue key for parked readers (the address of the lock itself
+            // is reserved for parked writers). `unpark_all` only requires
+            // a stable usize identifier; `self` is pinned for the lock's
+            // lifetime.
             unsafe {
                 parking_lot_core::unpark_all((self as *const _ as usize) + 1, UnparkToken(0));
             }
@@ -137,6 +156,11 @@ impl RawRwLock {
                     }
                 }
 
+                // SAFETY: we are about to park on the writer queue
+                // identified by the address of `self`. The validation
+                // closure re-checks the state under the parking lot's
+                // internal lock; if the lock is no longer writer-held
+                // with WRITERS_PARKED set, parking is aborted.
                 let _ = unsafe {
                     parking_lot_core::park(
                         self as *const _ as usize,
@@ -180,12 +204,17 @@ impl RawRwLock {
         }
 
         if parked == READERS_PARKED {
+            // SAFETY: `(self as *const _ as usize) + 1` is the readers'
+            // queue key (see `downgrade`); `self` is pinned for the
+            // lock's lifetime.
             return unsafe {
                 parking_lot_core::unpark_all((self as *const _ as usize) + 1, UnparkToken(0));
             };
         }
 
         assert_eq!(parked, WRITERS_PARKED);
+        // SAFETY: `self as *const _ as usize` is the writers' queue key;
+        // `self` is pinned for the lock's lifetime.
         unsafe {
             parking_lot_core::unpark_one(self as *const _ as usize, |_| UnparkToken(0));
         }
@@ -279,6 +308,10 @@ impl RawRwLock {
                     }
                 }
 
+                // SAFETY: parks on the readers' queue key `(self + 1)`.
+                // Validation re-checks under the parking lot's internal
+                // lock; if the writer has gone away or READERS_PARKED is
+                // clear, parking is aborted.
                 let _ = unsafe {
                     parking_lot_core::park(
                         (self as *const _ as usize) + 1,
@@ -305,6 +338,8 @@ impl RawRwLock {
             .compare_exchange(WRITERS_PARKED, 0, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
         {
+            // SAFETY: `self` is pinned for the lock's lifetime; the
+            // writer queue key is `self as usize`.
             unsafe {
                 parking_lot_core::unpark_one(self as *const _ as usize, |_| UnparkToken(0));
             }

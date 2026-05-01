@@ -129,10 +129,22 @@ pub struct VacantEntry<'a, K, V> {
     slot: hashbrown::raw::InsertSlot,
 }
 
+// SAFETY: `VacantEntry` holds a write guard plus an `InsertSlot` and a
+// pre-computed key/hash. The guard supplies exclusive access; the
+// `InsertSlot` is only used inside `insert`/`insert_entry` while the
+// write guard is still held, so it cannot race with other shards.
 unsafe impl<'a, K: Eq + Hash + Sync, V: Sync> Send for VacantEntry<'a, K, V> {}
+// SAFETY: see the `Send` impl above.
 unsafe impl<'a, K: Eq + Hash + Sync, V: Sync> Sync for VacantEntry<'a, K, V> {}
 
 impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
+    /// # Safety
+    ///
+    /// `slot` must have been returned by a *recent* call to
+    /// `find_or_find_insert_slot(hash, ...)` on the same `RawTable` that
+    /// `shard` protects, with no intervening operation that could cause a
+    /// reallocation (eviction `remove`/`erase` are fine; `try_reserve`,
+    /// `shrink_to`, or another `insert` invalidate the slot).
     pub(crate) unsafe fn new(
         shard: RwLockWriteGuard<'a, HashMap<K, V>>,
         key: K,
@@ -169,6 +181,13 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
 
         let key_for_queue = self.key.clone();
 
+        // SAFETY: `self.slot` was produced by `find_or_find_insert_slot`
+        // when the `VacantEntry` was constructed (see `VacantEntry::new`'s
+        // contract). Eviction — the only mutation between then and now —
+        // calls only `remove`/`erase`, which do not reallocate the table
+        // and therefore do not invalidate the slot. `as_ref` and
+        // `RefMut::new` see a freshly-inserted entry under the held write
+        // guard, satisfying their respective contracts.
         unsafe {
             let occupied = self.shard.map.insert_in_slot(
                 self.hash,
@@ -210,6 +229,11 @@ impl<'a, K: Eq + Hash, V> VacantEntry<'a, K, V> {
 
         let key_for_queue = self.key.clone();
 
+        // SAFETY: see `VacantEntry::insert` above. The slot is still valid
+        // because eviction only does `remove`/`erase`, which never
+        // reallocate. `OccupiedEntry::new` is fed the bucket returned by
+        // `insert_in_slot` and the same write guard, satisfying its
+        // contract.
         unsafe {
             let bucket = self.shard.map.insert_in_slot(
                 self.hash,
@@ -249,10 +273,21 @@ pub struct OccupiedEntry<'a, K, V> {
     key: K,
 }
 
+// SAFETY: `OccupiedEntry` holds a write guard and a `Bucket` pointing
+// into the locked shard's table. The write guard supplies exclusive
+// access; the bucket is invalidated only by table operations that we do
+// not perform between construction and consumption.
 unsafe impl<'a, K: Eq + Hash + Sync, V: Sync> Send for OccupiedEntry<'a, K, V> {}
+// SAFETY: see the `Send` impl above.
 unsafe impl<'a, K: Eq + Hash + Sync, V: Sync> Sync for OccupiedEntry<'a, K, V> {}
 
 impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
+    /// # Safety
+    ///
+    /// `bucket` must have been returned by a recent `find` /
+    /// `find_or_find_insert_slot` / `insert_in_slot` call on the same
+    /// `RawTable` that `shard` protects, and the underlying entry must
+    /// not have been removed since.
     pub(crate) unsafe fn new(
         shard: RwLockWriteGuard<'a, HashMap<K, V>>,
         key: K,
@@ -263,11 +298,16 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
 
     /// Returns a shared reference to the value of the entry.
     pub fn get(&self) -> &V {
+        // SAFETY: `self.bucket` is valid per `OccupiedEntry::new`'s
+        // contract; the held write guard excludes every other accessor.
         unsafe { self.bucket.as_ref().1.value.get() }
     }
 
     /// Returns a mutable reference to the value of the entry.
     pub fn get_mut(&mut self) -> &mut V {
+        // SAFETY: `&mut self` is unique by the borrow checker; the held
+        // write guard excludes every other thread; together these provide
+        // exclusive access to the entry.
         unsafe { self.bucket.as_mut().1.value.get_mut() }
     }
 
@@ -278,6 +318,10 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
 
     /// Converts into a `RefMut` that holds the shard lock.
     pub fn into_ref(self) -> RefMut<'a, K, V> {
+        // SAFETY: `self.bucket` is valid per `OccupiedEntry::new`'s
+        // contract; the write guard moves into the returned `RefMut`,
+        // satisfying `RefMut::new`'s contract that the pointers remain
+        // valid for the guard's lifetime.
         unsafe {
             let (k, entry) = self.bucket.as_ref();
             RefMut::new(self.shard, k, entry.value.as_ptr())
@@ -291,12 +335,18 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
 
     /// Returns a reference to the key of the entry.
     pub fn key(&self) -> &K {
+        // SAFETY: see `OccupiedEntry::get` above.
         unsafe { &self.bucket.as_ref().0 }
     }
 
     /// Removes the entry from the map and returns the value.
     pub fn remove(mut self) -> V {
+        // SAFETY: `self.bucket` is valid (contract of `OccupiedEntry::new`)
+        // and we hold the write lock; `as_ref` is a read of the entry's
+        // metadata under exclusive access. `map.remove(bucket)` then
+        // consumes the bucket; nothing else aliases it.
         let loc = unsafe { self.bucket.as_ref().1.loc };
+        // SAFETY: same justification as the `as_ref` call above.
         let ((_k, entry), _) = unsafe { self.shard.map.remove(self.bucket) };
         // Update live counts for lazy-removal consistency.
         if loc == crate::shard::LOC_SMALL {
@@ -309,7 +359,10 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
 
     /// Removes the entry from the map and returns the `(key, value)` pair.
     pub fn remove_entry(mut self) -> (K, V) {
+        // SAFETY: see `OccupiedEntry::remove` above; this method differs
+        // only in returning the key as well.
         let loc = unsafe { self.bucket.as_ref().1.loc };
+        // SAFETY: same as the `as_ref` call above.
         let ((k, entry), _) = unsafe { self.shard.map.remove(self.bucket) };
         if loc == crate::shard::LOC_SMALL {
             self.shard.small_live = self.shard.small_live.saturating_sub(1);
@@ -325,6 +378,10 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
     /// preserved from the existing entry, so a hot entry that was promoted to the
     /// main queue stays there after replacement.
     pub fn replace_entry(self, value: V) -> (K, V) {
+        // SAFETY: `self.bucket` is valid per `OccupiedEntry::new`'s
+        // contract; the held write lock excludes any other accessor of
+        // the entry, including any concurrent `bump_freq` from the read
+        // path — so the `freq.load(Relaxed)` observes the latest value.
         let (orig_loc, orig_freq) = unsafe {
             let e = &self.bucket.as_ref().1;
             (e.loc, e.freq.load(core::sync::atomic::Ordering::Relaxed))
@@ -333,6 +390,10 @@ impl<'a, K: Eq + Hash, V> OccupiedEntry<'a, K, V> {
         new_entry
             .freq
             .store(orig_freq, core::sync::atomic::Ordering::Relaxed);
+        // SAFETY: under the write lock no other thread can hold a
+        // reference into the bucket; `bucket.as_mut()` is the only live
+        // reference to the entry, so `mem::replace` swaps the pair
+        // atomically with respect to any future reader.
         let (k, entry) = mem::replace(unsafe { self.bucket.as_mut() }, (self.key, new_entry));
         (k, entry.value.into_inner())
     }

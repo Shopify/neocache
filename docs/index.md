@@ -18,10 +18,13 @@
 NeoCache<K, V, S>           ← public map type (sharded)
   └── shards: [RwLock<ShardData<K, V>>]
         └── ShardData<K, V>  ← one shard: hashbrown table + S3-FIFO queues
-              ├── map: RawTable<(K, CacheEntry<V>)>
-              ├── small: VecDeque<(u64, K)>   ← ~10% of shard_cap
-              ├── main:  VecDeque<(u64, K)>   ← ~90% of shard_cap
-              └── ghost: VecDeque<K> + HashSet<K>
+              ├── map:          RawTable<(K, CacheEntry<V>)>
+              ├── small_hashes: VecDeque<u64>  ┐ ~10% of shard_cap
+              ├── small_keys:   VecDeque<K>    ┘
+              ├── main_hashes:  VecDeque<u64>  ┐ ~90% of shard_cap
+              ├── main_keys:    VecDeque<K>    ┘
+              └── ghost_set:    HashSet<u64>   ← bounded by shard_cap;
+                                                 cleared in bulk when full
 ```
 
 Every operation hashes the key once, selects a shard, and takes only that shard's lock. Eviction runs inside the same write-lock acquisition as insertion — no separate eviction thread or global lock is ever needed.

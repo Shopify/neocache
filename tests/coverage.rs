@@ -359,7 +359,7 @@ fn read_only_view_all_methods() {
 
     assert_eq!(view.iter().count(), 5);
     assert_eq!(view.keys().count(), 5);
-    assert_eq!(view.values().sum::<u64>(), 0 + 10 + 20 + 30 + 40);
+    assert_eq!(view.values().sum::<u64>(), 10 + 20 + 30 + 40);
 
     let recovered: NeoCache<u64, u64> = view.into_inner();
     assert_eq!(recovered.len(), 5);
@@ -993,10 +993,8 @@ fn occupied_entry_remove_main_loc_entry() {
 
     // Now try to remove a key via OccupiedEntry — if it's still present,
     // it may be in main (loc == LOC_MAIN); the live-count branch will fire.
-    if let Some(entry) = map.try_entry(0) {
-        if let Entry::Occupied(occ) = entry {
-            let _ = occ.remove();
-        }
+    if let Some(Entry::Occupied(occ)) = map.try_entry(0) {
+        let _ = occ.remove();
     }
 }
 

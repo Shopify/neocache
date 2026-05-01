@@ -47,27 +47,36 @@ pub struct NeoCache<K, V, S = RandomState> {
 ```rust
 pub(crate) struct ShardData<K, V> {
     // hashbrown raw table
-    pub(crate) map:        RawTable<(K, CacheEntry<V>)>,
+    pub(crate) map:           RawTable<(K, CacheEntry<V>)>,
 
-    // S3-FIFO eviction queues
-    pub(crate) small:      VecDeque<(u64, K)>,
-    pub(crate) main:       VecDeque<(u64, K)>,
-    pub(crate) ghost:      VecDeque<K>,
-    pub(crate) ghost_set:  HashSet<K, RandomState>,
+    // S3-FIFO eviction queues — split into hash and key arrays for cache
+    // locality during the stale-entry skip in eviction.
+    pub(crate) small_hashes:  VecDeque<u64>,
+    pub(crate) small_keys:    VecDeque<K>,
+    pub(crate) main_hashes:   VecDeque<u64>,
+    pub(crate) main_keys:     VecDeque<K>,
+
+    // Ghost set: hashes of recently evicted entries.
+    // Stores `u64` hashes (not keys) so membership tests are allocation-free
+    // and a key clone is not needed on eviction. Bounded to `ghost_cap`
+    // entries; when full, the entire set is cleared (see `add_to_ghost`).
+    pub(crate) ghost_set:     HashSet<u64, RandomState>,
 
     // live counters (stale queue entries don't count)
-    pub(crate) small_live: usize,
-    pub(crate) main_live:  usize,
+    pub(crate) small_live:    usize,
+    pub(crate) main_live:     usize,
 
     // capacities set at construction time
-    pub(crate) shard_cap:  usize,
-    pub(crate) small_cap:  usize,
-    pub(crate) main_cap:   usize,
-    pub(crate) ghost_cap:  usize,
+    pub(crate) shard_cap:     usize,
+    pub(crate) small_cap:     usize,
+    pub(crate) main_cap:      usize,
+    pub(crate) ghost_cap:     usize,
 }
 ```
 
 All S3-FIFO eviction state lives inside the same struct as the hashbrown table. This is the key architectural decision: it means the write lock that an insertion or removal already holds gives exclusive access to _both_ the table and the queues. No separate lock for the eviction queues is ever needed.
+
+The FIFO queues are stored as parallel `VecDeque<u64>` and `VecDeque<K>` rather than a single `VecDeque<(u64, K)>`. This keeps hashes contiguous in memory so the eviction sweep — which only needs the hash to call `map.find` — does not pay for `K`-sized strides while skipping stale entries.
 
 ## CacheEntry
 

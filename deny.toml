@@ -1,0 +1,85 @@
+# cargo-deny configuration for neocache.
+#
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally with:
+#     cargo install --locked cargo-deny
+#     cargo deny --all-features check
+
+# ── Targets ──────────────────────────────────────────────────────────────────
+# Match the OS matrix in `.github/workflows/ci.yml` so cfg-gated dependencies
+# are evaluated for every supported target, not just the host.
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+all-features = true
+
+# ── Advisories ───────────────────────────────────────────────────────────────
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Hard-fail on any RustSec vulnerability against a crate in our graph.
+# Yanked crates and unmaintained advisories are warnings — they do not
+# typically indicate exploitability and can be hard to fix immediately
+# when the affected crate is transitively pulled in.
+yanked = "warn"
+ignore = []
+
+# ── License policy ───────────────────────────────────────────────────────────
+# Allow-list approach: every license a transitive dependency declares must
+# appear here, otherwise the build fails. `confidence-threshold = 0.95` keeps
+# the SPDX detector strict.
+[licenses]
+confidence-threshold = 0.95
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    # CC0-1.0 is a public-domain dedication; some Rust crates (e.g. notify
+    # ancestors, hashbrown's bench data) declare it. Reviewed and accepted.
+    "CC0-1.0",
+]
+exceptions = []
+
+# ── Banned / cloned crate policy ─────────────────────────────────────────────
+[bans]
+# Multiple versions of the same crate inflate binary size and hide audit gaps.
+# Start at "warn" so transitively-pulled duplicates don't immediately block
+# CI; tighten to "deny" once the graph is clean.
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+
+# Crates we explicitly never want to depend on, directly or transitively.
+deny = [
+    # Unmaintained or known-bad crates would go here, e.g.:
+    # { name = "openssl", reason = "use rustls instead" },
+]
+
+# Skip the multiple-versions check for crates that are *expected* to appear
+# more than once in the graph (typically because of MSRV gaps in upstreams).
+skip = []
+skip-tree = []
+
+# ── Source policy ────────────────────────────────────────────────────────────
+# Only crates from the official registry are allowed. No git or path
+# dependencies should ship in a published crate; if one is added in the
+# future, list it here explicitly.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

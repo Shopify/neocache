@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # Cargo dependencies
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "America/Toronto"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "deps"
+      include: scope
+    groups:
+      # Group patch and minor updates together to keep PR volume low.
+      cargo-minor-and-patch:
+        update-types:
+          - patch
+          - minor
+    ignore:
+      # `hashbrown` is intentionally pinned to 0.14.x. The `raw` module became
+      # private in 0.15+, removing the RawTable / Bucket / InsertSlot / RawIter
+      # APIs this crate depends on for zero-copy per-shard storage. A bump
+      # requires a full rewrite of the storage layer.
+      # See the comment in Cargo.toml.
+      - dependency-name: "hashbrown"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+
+  # GitHub Actions used in workflows
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "America/Toronto"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: scope

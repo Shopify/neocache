@@ -1,5 +1,11 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+// Every `unsafe` block and `unsafe impl` in this crate must carry a
+// `// SAFETY:` justification. The lints below enforce that — they are
+// the only mechanism that keeps the safety arguments at the call site
+// instead of drifting into `docs/internals.md`.
+#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::missing_safety_doc)]
 #![allow(clippy::type_complexity)]
 
 pub mod iter;
@@ -428,16 +434,27 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
 
     unsafe fn _get_read_shard(&'a self, i: usize) -> &'a HashMap<K, V> {
         debug_assert!(i < self.shards.len());
+        // SAFETY: caller upholds the `Map::_get_read_shard` contract that
+        // `i < self.shards.len()` and that no concurrent writer may exist
+        // (the only in-tree caller is `ReadOnlyView`, which consumes the
+        // map). `data_ptr()` returns a pointer into the lock's UnsafeCell
+        // whose target lives for `'a` because the `Box<[...]>` is owned by
+        // `self`.
         unsafe { &*self.shards.get_unchecked(i).data_ptr() }
     }
 
     unsafe fn _yield_read_shard(&'a self, i: usize) -> RwLockReadGuard<'a, HashMap<K, V>> {
         debug_assert!(i < self.shards.len());
+        // SAFETY: caller upholds `i < self.shards.len()`. `read()` blocks
+        // until a shared lock is acquired and is sound for any pinned
+        // `RwLock`.
         unsafe { self.shards.get_unchecked(i).read() }
     }
 
     unsafe fn _yield_write_shard(&'a self, i: usize) -> RwLockWriteGuard<'a, HashMap<K, V>> {
         debug_assert!(i < self.shards.len());
+        // SAFETY: caller upholds `i < self.shards.len()`. See
+        // `_yield_read_shard` above.
         unsafe { self.shards.get_unchecked(i).write() }
     }
 
@@ -446,6 +463,8 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         i: usize,
     ) -> Option<RwLockReadGuard<'a, HashMap<K, V>>> {
         debug_assert!(i < self.shards.len());
+        // SAFETY: caller upholds `i < self.shards.len()`. `try_read()` is
+        // a non-blocking variant of `read()`.
         unsafe { self.shards.get_unchecked(i).try_read() }
     }
 
@@ -454,6 +473,8 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         i: usize,
     ) -> Option<RwLockWriteGuard<'a, HashMap<K, V>>> {
         debug_assert!(i < self.shards.len());
+        // SAFETY: caller upholds `i < self.shards.len()`. `try_write()` is
+        // a non-blocking variant of `write()`.
         unsafe { self.shards.get_unchecked(i).try_write() }
     }
 
@@ -463,6 +484,9 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
 
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx = determine_shard(hash) < shards.len()` by
+        // construction (the high bits of the hash are masked into the
+        // shard-index range).
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
         // Single probe: find existing entry OR locate insert slot.
@@ -475,6 +499,9 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         ) {
             Ok(bucket) => {
                 // Key exists — replace value.
+                // SAFETY: `bucket` was just returned by
+                // `find_or_find_insert_slot` above and we hold the shard
+                // write lock, so the bucket is live and uniquely owned.
                 let old = unsafe { core::mem::replace(bucket.as_mut().1.value.get_mut(), value) };
                 Some(old)
             }
@@ -491,6 +518,10 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
                 }
 
                 let key_for_queue = key.clone();
+                // SAFETY: `slot` was returned by `find_or_find_insert_slot`
+                // above; the only intervening mutation is `evict_one`,
+                // which uses `remove`/`erase` only — those do not
+                // reallocate, so the slot remains valid.
                 unsafe {
                     shard
                         .map
@@ -519,10 +550,15 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: `bucket` was just returned by `find` on this shard
+            // under the held write lock; both calls below operate on it
+            // before the lock is released.
             let loc = unsafe { bucket.as_ref().1.loc };
+            // SAFETY: same bucket as above; `remove` consumes it.
             let ((k, entry), _) = unsafe { shard.map.remove(bucket) };
             if loc == LOC_SMALL {
                 shard.small_live = shard.small_live.saturating_sub(1);
@@ -542,12 +578,17 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: `bucket` was just returned by `find` on this shard
+            // under the held write lock.
             let (k, entry) = unsafe { bucket.as_ref() };
             if f(k, entry.value.get()) {
                 let loc = entry.loc;
+                // SAFETY: same bucket as above; the predicate `f` did not
+                // touch the table.
                 let ((k, entry), _) = unsafe { shard.map.remove(bucket) };
                 if loc == LOC_SMALL {
                     shard.small_live = shard.small_live.saturating_sub(1);
@@ -570,12 +611,18 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: `bucket` was just returned by `find` on this shard
+            // under the held write lock; the projection to `&mut` is sound
+            // because the lock excludes any other accessor.
             let (k, entry) = unsafe { bucket.as_mut() };
             if f(k, entry.value.get_mut()) {
                 let loc = entry.loc;
+                // SAFETY: same bucket as above; the predicate `f` did not
+                // mutate the table structure (only the value).
                 let ((k, entry), _) = unsafe { shard.map.remove(bucket) };
                 if loc == LOC_SMALL {
                     shard.small_live = shard.small_live.saturating_sub(1);
@@ -606,9 +653,15 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let shard = unsafe { self._yield_read_shard(idx) };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: `bucket` was returned by `find` on this shard's
+            // table; the read guard is moved into the returned `Ref`,
+            // satisfying `Ref::new`'s lifetime contract. `bump_freq` uses
+            // `AtomicU8`, so a shared lock is sufficient even when other
+            // readers race on the same entry.
             unsafe {
                 let (k, entry) = bucket.as_ref();
                 // Increment frequency (safe under read lock — AtomicU8).
@@ -627,9 +680,13 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let shard = unsafe { self._yield_write_shard(idx) };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: `bucket` was returned by `find` under the held
+            // write lock. The write guard moves into the returned
+            // `RefMut`, satisfying its lifetime contract.
             unsafe {
                 let (k, entry) = bucket.as_ref();
                 entry.bump_freq();
@@ -648,12 +705,15 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
 
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let shard = match unsafe { self._try_yield_read_shard(idx) } {
             Some(s) => s,
             None => return TryResult::Locked,
         };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: see `_get` above; the only difference is that the
+            // shard lock was acquired non-blockingly.
             unsafe {
                 let (k, entry) = bucket.as_ref();
                 entry.bump_freq();
@@ -672,12 +732,14 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
 
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let shard = match unsafe { self._try_yield_write_shard(idx) } {
             Some(s) => s,
             None => return TryResult::Locked,
         };
 
         if let Some(bucket) = shard.map.find(hash, |(k, _entry)| key == k.borrow()) {
+            // SAFETY: see `_get_mut` above.
             unsafe {
                 let (k, entry) = bucket.as_ref();
                 entry.bump_freq();
@@ -697,17 +759,25 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     }
 
     fn _retain(&self, mut f: impl FnMut(&K, &mut V) -> bool) {
-        self.shards.iter().for_each(|s| unsafe {
+        self.shards.iter().for_each(|s| {
             let mut shard = s.write();
-            for bucket in shard.map.iter() {
-                let (k, entry) = bucket.as_mut();
-                if !f(&*k, entry.value.get_mut()) {
-                    let loc = entry.loc;
-                    shard.map.erase(bucket);
-                    if loc == LOC_SMALL {
-                        shard.small_live = shard.small_live.saturating_sub(1);
-                    } else {
-                        shard.main_live = shard.main_live.saturating_sub(1);
+            // SAFETY: `shard.map.iter()` produces a `RawIter` cursor that
+            // remains valid across `erase` calls (`erase` only marks the
+            // slot as a tombstone; it neither reallocates nor moves
+            // entries). Each `bucket.as_mut()` is sound because we hold
+            // the write lock and `RawIter` yields each bucket at most
+            // once, so no two `&mut` references to the same entry exist.
+            unsafe {
+                for bucket in shard.map.iter() {
+                    let (k, entry) = bucket.as_mut();
+                    if !f(&*k, entry.value.get_mut()) {
+                        let loc = entry.loc;
+                        shard.map.erase(bucket);
+                        if loc == LOC_SMALL {
+                            shard.small_live = shard.small_live.saturating_sub(1);
+                        } else {
+                            shard.main_live = shard.main_live.saturating_sub(1);
+                        }
                     }
                 }
             }
@@ -751,6 +821,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     fn _entry(&'a self, key: K) -> Entry<'a, K, V> {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let mut shard = unsafe { self._yield_write_shard(idx) };
 
         match shard.map.find_or_find_insert_slot(
@@ -758,7 +829,13 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
             |(k, _entry)| k == &key,
             |(k, _entry)| self.hasher.hash_one(k),
         ) {
+            // SAFETY: `elem` was returned by `find_or_find_insert_slot`
+            // on this shard's table under the held write lock; this
+            // satisfies `OccupiedEntry::new`'s contract.
             Ok(elem) => Entry::Occupied(unsafe { OccupiedEntry::new(shard, key, elem) }),
+            // SAFETY: `slot` was returned by `find_or_find_insert_slot`
+            // on this shard's table under the held write lock; this
+            // satisfies `VacantEntry::new`'s contract.
             Err(slot) => Entry::Vacant(unsafe { VacantEntry::new(shard, key, hash, slot) }),
         }
     }
@@ -766,6 +843,7 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
     fn _try_entry(&'a self, key: K) -> Option<Entry<'a, K, V>> {
         let hash = self.hash_u64(&key);
         let idx = self.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by `determine_shard`.
         let mut shard = unsafe { self._try_yield_write_shard(idx) }?;
 
         match shard.map.find_or_find_insert_slot(
@@ -773,9 +851,11 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: 'a + BuildHasher + Clone> Map<'a, 
             |(k, _entry)| k == &key,
             |(k, _entry)| self.hasher.hash_one(k),
         ) {
+            // SAFETY: see `_entry` above.
             Ok(elem) => Some(Entry::Occupied(unsafe {
                 OccupiedEntry::new(shard, key, elem)
             })),
+            // SAFETY: see `_entry` above.
             Err(slot) => Some(Entry::Vacant(unsafe {
                 VacantEntry::new(shard, key, hash, slot)
             })),

@@ -84,12 +84,19 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> ReadOnlyView<
     {
         let hash = self.map.hash_u64(&key);
         let idx = self.map.determine_shard(hash as usize);
+        // SAFETY: `idx < shards.len()` by construction — `determine_shard`
+        // produces an index in `[0, shard_count)`. `ReadOnlyView` consumes
+        // the underlying `NeoCache`, so no writer to this shard can exist;
+        // the lock-free `_get_read_shard` is therefore sound.
         let shard = unsafe { self.map._get_read_shard(idx) };
 
         shard
             .map
             .find(hash, |(k, _entry)| key == k.borrow())
             .map(|b| {
+                // SAFETY: `b` was just returned by `find` on this same
+                // table; no other code is mutating the table because
+                // `ReadOnlyView` does not expose any writer API.
                 let (k, entry) = unsafe { b.as_ref() };
                 (k, entry.value.get())
             })
@@ -97,6 +104,11 @@ impl<'a, K: 'a + Eq + Hash + Clone, V: 'a, S: BuildHasher + Clone> ReadOnlyView<
 
     /// Iterates over all `(&key, &value)` pairs without acquiring any locks.
     pub fn iter(&'a self) -> impl Iterator<Item = (&'a K, &'a V)> + 'a {
+        // SAFETY: shard indices `0..shard_count` are valid by construction;
+        // `ReadOnlyView` precludes any writer, so the lock-free shard access
+        // and the raw `RawTable::iter()` cursor are not racing with any
+        // mutation. Each `Bucket::as_ref` call dereferences a bucket that
+        // came directly from `iter()` on the same (unmodified) table.
         unsafe {
             (0..self.map._shard_count())
                 .map(move |shard_i| self.map._get_read_shard(shard_i))
