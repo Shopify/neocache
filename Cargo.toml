@@ -1,0 +1,36 @@
+[package]
+name = "neocache"
+version = "0.1.0"
+authors = ["Shopify Engineering <careers@shopify.com>"]
+edition = "2024"
+rust-version = "1.88"
+description = "A concurrent HashMap with S3-FIFO cache eviction, forked from DashMap"
+license = "MIT"
+repository = "https://github.com/shopify-playground/neocache"
+keywords = ["cache", "concurrent", "hashmap", "eviction", "s3fifo"]
+categories = ["data-structures", "concurrency"]
+
+[features]
+serde = ["dep:serde"]
+rayon = ["dep:rayon"]
+
+[dependencies]
+# hashbrown is pinned to 0.14.x. In 0.15+ the `raw` module became private,
+# removing RawTable, Bucket, InsertSlot and RawIter — the exact APIs this crate
+# uses for zero-copy per-shard storage and eviction. Upgrading requires a full
+# rewrite of the storage layer around the new HashTable API.
+hashbrown = { version = "0.14.5", features = ["raw"], default-features = false }
+lock_api = "0.4.12"
+parking_lot_core = "0.9.12"
+crossbeam-utils = "0.8.21"
+ahash = { version = "0.8.12", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"], optional = true }
+rayon = { version = "1", optional = true }
+
+[dev-dependencies]
+rand = "0.9.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "throughput"
+harness = false

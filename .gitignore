@@ -1,0 +1,4 @@
+/target
+
+# Local agent / IDE settings (Claude Code, Cursor, etc.)
+.claude/
