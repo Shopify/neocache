@@ -1,6 +1,6 @@
 [package]
 name = "neocache"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Shopify Engineering <opensource@shopify.com>"]
 edition = "2024"
 rust-version = "1.88"
